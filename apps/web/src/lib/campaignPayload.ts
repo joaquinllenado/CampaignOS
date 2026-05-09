@@ -1,12 +1,5 @@
 import type { CampaignIntakeFields } from "./campaignTypes";
 
-function splitLines(value: string): string[] {
-  return value
-    .split(/[\n,]+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
 function parseOptionalPositiveNumber(raw: string): number | undefined {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
@@ -23,18 +16,17 @@ export function buildCampaignRunPayload(
   niaSourceIds: string[] = []
 ) {
   const budget = parseOptionalPositiveNumber(campaign.budget);
-  const kpiPriorities = splitLines(campaign.kpiPriorities);
   const uniqueIds = [...new Set(niaSourceIds.map((id) => id.trim()).filter(Boolean))];
 
   return {
     campaign: {
       name: campaign.name.trim(),
       brand: campaign.brand.trim(),
-      objective: campaign.objective,
+      objective: "auto" as const,
       product: campaign.product.trim(),
       audience: campaign.audience.trim(),
       ...(budget !== undefined ? { budget } : {}),
-      kpiPriorities,
+      kpiPriorities: [] as string[],
       brief: campaign.brief.trim()
     },
     ...(uniqueIds.length > 0 ? { nia: { sourceIds: uniqueIds } } : {})

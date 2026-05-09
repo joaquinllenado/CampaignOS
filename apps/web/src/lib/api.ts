@@ -1,5 +1,23 @@
 import type { AgentRunErrorResponse, AgentRunSuccess } from "./campaignTypes";
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error(`Empty response from server (${response.status}).`);
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    const preview = trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed;
+    throw new Error(
+      response.ok
+        ? `Server returned non-JSON: ${preview}`
+        : `Request failed (${response.status}): ${preview}`
+    );
+  }
+}
+
 export type NiaBrandIngestOk = {
   indexed: Array<{
     filename: string;
@@ -31,7 +49,7 @@ export async function ingestNiaBrandFiles(
     body: fd
   });
 
-  const data = await response.json() as NiaBrandIngestOk | AgentRunErrorResponse;
+  const data = await readJsonResponse<NiaBrandIngestOk | AgentRunErrorResponse>(response);
 
   if (!response.ok || "error" in data) {
     throw new Error(
@@ -53,7 +71,7 @@ export async function submitAgentRun(payload: unknown): Promise<AgentRunSuccess>
     body: JSON.stringify(payload)
   });
 
-  const typed = (await response.json()) as AgentRunSuccess | AgentRunErrorResponse;
+  const typed = await readJsonResponse<AgentRunSuccess | AgentRunErrorResponse>(response);
 
   if (!response.ok || !("mode" in typed)) {
     const err = typed as AgentRunErrorResponse;

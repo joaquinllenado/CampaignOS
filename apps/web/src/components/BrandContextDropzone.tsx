@@ -6,13 +6,26 @@ type Props = {
   campaignLabel?: string;
   indexedSourceIds: string[];
   onIndexedSourceIdsChange: Dispatch<SetStateAction<string[]>>;
+  /** Override default “Supporting documents” heading */
+  title?: string;
+  /** Override default explanatory paragraph under the heading */
+  description?: string;
+  /** Accessible label for the hidden file input */
+  fileInputLabel?: string;
 };
 
 const dropOuterClass =
-  "relative flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-10 text-center transition dark:border-slate-600 dark:bg-slate-900/40";
+  "relative flex flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-stone-300 bg-white px-4 py-10 text-center transition dark:border-zinc-700 dark:bg-zinc-800/50";
 
 export function BrandContextDropzone(props: Props) {
-  const { campaignLabel, indexedSourceIds, onIndexedSourceIdsChange } = props;
+  const {
+    campaignLabel,
+    indexedSourceIds,
+    onIndexedSourceIdsChange,
+    title = "Supporting documents",
+    description = "Drop PDFs, spreadsheets, or text files describing past campaigns, outcomes, or internal metrics. We index them into Nia so the agent can search this context alongside your brief.",
+    fileInputLabel = "Upload brand context files"
+  } = props;
   const inputId = useId();
   const [queue, setQueue] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -103,20 +116,14 @@ export function BrandContextDropzone(props: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3.5">
       <div>
-        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-          Supporting documents
-        </h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Drop PDFs, spreadsheets (Excel/CSV), or text files describing past campaigns, outcomes,
-          or internal metrics. We index them into Nia so the agent can search this context alongside
-          your brief.
-        </p>
+        <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{title}</h3>
+        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{description}</p>
       </div>
 
       <label htmlFor={inputId} className="sr-only">
-        Upload brand context files
+        {fileInputLabel}
       </label>
       <input
         ref={inputRef}
@@ -136,47 +143,47 @@ export function BrandContextDropzone(props: Props) {
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        className={`${dropOuterClass} ${dragOver ? "border-blue-500 bg-blue-50/70 dark:bg-blue-950/30" : ""}`}
+        className={`${dropOuterClass} ${dragOver ? "border-zinc-400 bg-stone-50 dark:border-zinc-500 dark:bg-zinc-800" : ""}`}
       >
-        <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+        <span className="text-xl">📎</span>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Drag files here or{" "}
           <button
             type="button"
-            className="text-blue-600 underline decoration-blue-600/40 underline-offset-2 hover:text-blue-500 dark:text-blue-400"
+            className="text-zinc-900 underline underline-offset-2 hover:text-zinc-600 dark:text-zinc-200 dark:hover:text-zinc-400"
             onClick={() => inputRef.current?.click()}
           >
             browse
           </button>
         </p>
-        <p className="max-w-md text-xs text-slate-500 dark:text-slate-400">
-          PDF, CSV/TSV, Excel, Markdown, TXT, JSON (max 25&nbsp;MB per file, up to 20 files per
-          batch). Word `.docx` is not accepted yet—export to PDF first.
+        <p className="max-w-sm text-xs text-zinc-400 dark:text-zinc-500">
+          PDF, CSV/TSV, Excel, Markdown, TXT, JSON — max 25 MB per file, 20 files per batch.
         </p>
       </div>
 
       {queue.length > 0 ? (
-        <ul className="space-y-2 rounded-2xl border border-slate-100 bg-white/60 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/30">
+        <ul className="space-y-2 rounded-lg border border-stone-200 bg-white p-3 text-sm dark:border-zinc-700 dark:bg-zinc-900">
           {queue.map((file) => (
             <li
               key={`${file.name}-${file.size}`}
-              className="flex flex-wrap items-center justify-between gap-2 text-slate-800 dark:text-slate-100"
+              className="flex flex-wrap items-center justify-between gap-2 text-zinc-800 dark:text-zinc-200"
             >
-              <span className="truncate font-medium">{file.name}</span>
+              <span className="truncate text-sm">{file.name}</span>
               <button
                 type="button"
-                className="shrink-0 text-xs font-semibold text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400"
+                className="shrink-0 text-xs text-zinc-400 hover:text-red-600 transition dark:text-zinc-500 dark:hover:text-red-400"
                 onClick={() => removeQueued(file.name, file.size)}
               >
                 Remove
               </button>
             </li>
           ))}
-          <li className="pt-2">
+          <li className="pt-1.5">
             <button
               type="button"
               disabled={busy}
               onClick={() => void handleUpload()}
-              className="inline-flex rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+              className="inline-flex rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50 transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
             >
               {busy ? "Indexing…" : "Index files"}
             </button>
@@ -185,14 +192,14 @@ export function BrandContextDropzone(props: Props) {
       ) : null}
 
       {indexedSourceIds.length > 0 ? (
-        <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/50 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
-            Linked to intake ({indexedSourceIds.length})
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800/50 dark:bg-emerald-950/30">
+          <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wide dark:text-emerald-400">
+            Indexed & linked ({indexedSourceIds.length})
           </p>
-          <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-100/85">
-            These Nia sources will be sent with campaign intake for retrieval.
+          <p className="mt-0.5 text-xs text-emerald-700/80 dark:text-emerald-300/70">
+            These sources will be sent with the campaign for AI retrieval.
           </p>
-          <ul className="mt-3 space-y-2 font-mono text-[11px] text-emerald-950 dark:text-emerald-50">
+          <ul className="mt-2.5 space-y-2 font-mono text-[11px] text-emerald-900 dark:text-emerald-200/80">
             {indexedSourceIds.map((id) => (
               <li key={id} className="flex flex-wrap items-center justify-between gap-2">
                 <span className="max-w-[min(100%,20rem)] truncate" title={id}>
@@ -200,7 +207,7 @@ export function BrandContextDropzone(props: Props) {
                 </span>
                 <button
                   type="button"
-                  className="shrink-0 font-sans text-xs font-semibold text-emerald-800 hover:underline dark:text-emerald-300"
+                  className="shrink-0 font-sans text-xs text-emerald-700 hover:text-red-600 transition dark:text-emerald-400 dark:hover:text-red-400"
                   onClick={() => removeIndexed(id)}
                 >
                   Unlink
@@ -212,7 +219,7 @@ export function BrandContextDropzone(props: Props) {
       ) : null}
 
       {error ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-50">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/30 dark:text-red-400">
           {error}
         </div>
       ) : null}

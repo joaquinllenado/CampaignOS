@@ -16,7 +16,9 @@
     "test:nia:ingest": "bun run scripts/nia-ingest-test-documents.ts",
     "test:nia:ingest:poll": "bun run scripts/nia-ingest-test-documents.ts --poll",
     "test:nia:query": "bun run scripts/nia-query-test-sources.ts",
-    "test:nia:e2e": "bun run scripts/nia-e2e-test-documents.ts"
+    "test:nia:e2e": "bun run scripts/nia-e2e-test-documents.ts",
+    "test:agent:nia": "bun run scripts/agent-nia-context-test.ts",
+    "test:agent:nia:e2e": "bun run scripts/agent-nia-context-test.ts --ingest-test-documents"
   },
   "devDependencies": {
     "@types/bun": "^1.3.13",

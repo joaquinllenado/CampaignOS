@@ -1,243 +1,304 @@
 import { FormEvent, useCallback, useState } from "react";
 import { BrandContextDropzone } from "./BrandContextDropzone";
 import type { CampaignIntakeFields } from "../lib/campaignTypes";
-import { KPI_METRIC_HINTS } from "../lib/campaignTypes";
 import { submitAgentRun } from "../lib/api";
 import type { AgentRunSuccess } from "../lib/campaignTypes";
 import { buildCampaignRunPayload } from "../lib/campaignPayload";
 
-const defaultCampaignFields: CampaignIntakeFields = {
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const STEPS = ["Basics", "Audience", "Strategy", "Documents"];
+
+const STEP_META = [
+  { title: "Campaign Basics", sub: "Give your campaign an identity." },
+  { title: "Product & Audience", sub: "Define what you're promoting and who you're reaching." },
+  {
+    title: "Campaign Strategy",
+    sub: "Upload a brief file if you have one, then add a written summary. We infer the business objective and KPI model from everything you shared."
+  },
+  {
+    title: "Additional documents",
+    sub: "Optional: add decks, reports, or past campaign files—indexed into Nia for the agent to search alongside your brief."
+  }
+];
+
+const defaultFields: CampaignIntakeFields = {
   name: "",
   brand: "",
-  objective: "auto",
   product: "",
   audience: "",
   budget: "",
-  kpiPriorities: "",
   brief: ""
 };
 
-const labelClass =
-  "text-sm font-medium text-slate-700 dark:text-slate-300";
-const inputClass =
-  "mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-950 outline-none ring-blue-500/20 transition focus:border-blue-500 focus:ring-4 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-50";
-const textareaClass = `${inputClass} min-h-24 resize-y py-3`;
+// ── Shared style tokens ───────────────────────────────────────────────────────
+
+const inputCls =
+  "w-full rounded-lg border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600 dark:focus:border-zinc-600 dark:focus:ring-zinc-800";
+const labelCls = "block text-sm text-zinc-600 mb-1.5 dark:text-zinc-400";
+const textareaCls = `${inputCls} min-h-28 resize-y py-3`;
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function CampaignIntakeForm() {
-  const [campaign, setCampaign] = useState<CampaignIntakeFields>(() => ({
-    ...defaultCampaignFields
-  }));
+  const [step, setStep] = useState(0);
+  const [campaign, setCampaign] = useState<CampaignIntakeFields>({ ...defaultFields });
   const [niaSourceIds, setNiaSourceIds] = useState<string[]>([]);
-
   const [result, setResult] = useState<AgentRunSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const updateCampaign = useCallback(
-    (patch: Partial<CampaignIntakeFields>) => {
-      setCampaign((prev) => ({ ...prev, ...patch }));
-    },
-    []
-  );
+  const updateCampaign = useCallback((patch: Partial<CampaignIntakeFields>) => {
+    setCampaign((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  function canAdvance() {
+    if (step === 0) return campaign.name.trim() !== "" && campaign.brand.trim() !== "";
+    if (step === 1) return campaign.product.trim() !== "" && campaign.audience.trim() !== "";
+    if (step === 2) return campaign.brief.trim() !== "";
+    return true;
+  }
+
+  function resetAll() {
+    setCampaign({ ...defaultFields });
+    setNiaSourceIds([]);
+    setStep(0);
+    setResult(null);
+    setError(null);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
-
     try {
       const payload = buildCampaignRunPayload(campaign, niaSourceIds);
       const next = await submitAgentRun(payload);
       setResult(next);
-    } catch (caughtError) {
-      setResult(null);
-      setError(caughtError instanceof Error ? caughtError.message : "Unknown error.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error.");
     } finally {
       setIsLoading(false);
     }
   }
 
-  return (
-    <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-xl shadow-slate-200/60 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 dark:shadow-black/20">
-      <div className="mb-6 space-y-2">
-        <h2 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-          Campaign intake
-        </h2>
-        <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-          Enter your campaign details. The API validates this payload before later agent stages
-          run.
-        </p>
-      </div>
-
-      <form className="space-y-6" onSubmit={handleSubmit}>
-        <fieldset className="space-y-4 rounded-2xl border border-slate-100 p-4 dark:border-slate-800/80">
-          <legend className="px-1 text-base font-semibold text-slate-900 dark:text-slate-100">
-            Campaign details
-          </legend>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block sm:col-span-1">
-              <span className={labelClass}>Campaign name *</span>
-              <input
-                required
-                className={inputClass}
-                value={campaign.name}
-                onChange={(e) => updateCampaign({ name: e.target.value })}
-                placeholder="Summer launch / creators"
-              />
-            </label>
-            <label className="block sm:col-span-1">
-              <span className={labelClass}>Brand name *</span>
-              <input
-                required
-                className={inputClass}
-                value={campaign.brand}
-                onChange={(e) => updateCampaign({ brand: e.target.value })}
-              />
-            </label>
-            <label className="block sm:col-span-1">
-              <span className={labelClass}>Objective *</span>
-              <select
-                required
-                className={inputClass}
-                value={campaign.objective}
-                onChange={(e) =>
-                  updateCampaign({
-                    objective: e.target.value as CampaignIntakeFields["objective"]
-                  })
-                }
-              >
-                <option value="awareness">Awareness</option>
-                <option value="engagement">Engagement</option>
-                <option value="sales">Sales</option>
-                <option value="auto">Auto-detect</option>
-              </select>
-            </label>
-            <label className="block sm:col-span-1">
-              <span className={labelClass}>Budget (optional, positive)</span>
-              <input
-                className={inputClass}
-                inputMode="decimal"
-                value={campaign.budget}
-                onChange={(e) => updateCampaign({ budget: e.target.value })}
-                placeholder="e.g. 50000"
-              />
-            </label>
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>Product or category *</span>
-              <input
-                required
-                className={inputClass}
-                value={campaign.product}
-                onChange={(e) => updateCampaign({ product: e.target.value })}
-              />
-            </label>
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>Target audience *</span>
-              <textarea
-                required
-                className={textareaClass}
-                value={campaign.audience}
-                onChange={(e) => updateCampaign({ audience: e.target.value })}
-                placeholder="Who you are reaching; segments, geo, demos."
-              />
-            </label>
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>
-                KPI priorities (one per line or comma-separated; supports custom labels)
-              </span>
-              <textarea
-                className={textareaClass}
-                value={campaign.kpiPriorities}
-                onChange={(e) => updateCampaign({ kpiPriorities: e.target.value })}
-                placeholder={`${KPI_METRIC_HINTS.slice(0, 6).join(", ")}, …`}
-              />
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Suggested tokens: {KPI_METRIC_HINTS.join(", ")}.
-              </p>
-            </label>
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>Campaign brief *</span>
-              <textarea
-                required
-                minLength={1}
-                className={`${textareaClass} min-h-40`}
-                value={campaign.brief}
-                onChange={(e) => updateCampaign({ brief: e.target.value })}
-                placeholder="Goals, messaging, timelines, hooks, mandatory CTAs..."
-              />
-            </label>
+  // ── Success screen ──────────────────────────────────────────────────────────
+  if (result?.mode === "intake") {
+    return (
+      <div className="space-y-5 py-4">
+        <div className="text-center py-8">
+          <div className="w-14 h-14 mx-auto mb-5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-2xl dark:bg-emerald-950/40 dark:border-emerald-800">
+            🚀
           </div>
-        </fieldset>
-
-        <fieldset className="space-y-4 rounded-2xl border border-slate-100 p-4 dark:border-slate-800/80">
-          <BrandContextDropzone
-            campaignLabel={campaign.name}
-            indexedSourceIds={niaSourceIds}
-            onIndexedSourceIdsChange={setNiaSourceIds}
-          />
-        </fieldset>
-
-        <button
-          className="inline-flex items-center justify-center rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isLoading}
-          type="submit"
-        >
-          {isLoading ? "Submitting intake…" : "Submit intake"}
-        </button>
-      </form>
-
-      {error ? (
-        <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">
-          {error}
-        </div>
-      ) : null}
-
-      {result?.mode === "intake" ? (
-        <div className="mt-6 space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/70 dark:bg-emerald-950/30">
-          <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">
-            Intake validated
-          </p>
-          <p className="text-xs text-emerald-800 dark:text-emerald-200/90">
+          <h2 className="text-2xl font-bold text-zinc-900 mb-2 dark:text-zinc-100">Campaign queued!</h2>
+          <p className="text-zinc-500 text-sm dark:text-zinc-400">
             Received{" "}
-            <time dateTime={result.receivedAt}>
+            <time dateTime={result.receivedAt} className="text-zinc-700 dark:text-zinc-300">
               {new Date(result.receivedAt).toLocaleString()}
             </time>
           </p>
-          {result.warnings.length > 0 ? (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
-                Heads-up
-              </p>
-              <ul className="mt-1 list-inside list-disc text-sm text-emerald-900 dark:text-emerald-100/90">
-                {result.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {result.kpiPriorityNotes.length > 0 ? (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
-                KPI priorities
-              </p>
-              <ul className="mt-1 list-inside list-disc text-sm text-emerald-900 dark:text-emerald-100/90">
-                {result.kpiPriorityNotes.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <details className="rounded-xl border border-emerald-200/60 bg-white/60 p-3 dark:border-emerald-900/50 dark:bg-slate-950/40">
-            <summary className="cursor-pointer text-sm font-medium text-emerald-900 dark:text-emerald-100">
-              View normalized payload
-            </summary>
-            <pre className="mt-3 max-h-96 overflow-auto text-xs leading-relaxed text-slate-800 dark:text-slate-200">
-              {JSON.stringify(result.intake, null, 2)}
-            </pre>
-          </details>
         </div>
-      ) : null}
-    </section>
+
+        {result.warnings.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-950/30">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2 dark:text-amber-400">Heads-up</p>
+            <ul className="space-y-1 text-sm text-amber-800 dark:text-amber-300">
+              {result.warnings.map((w) => <li key={w}>• {w}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {result.kpiPriorityNotes.length > 0 && (
+          <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 dark:border-zinc-700 dark:bg-zinc-900">
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 dark:text-zinc-400">KPI Notes</p>
+            <ul className="space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+              {result.kpiPriorityNotes.map((n) => <li key={n}>• {n}</li>)}
+            </ul>
+          </div>
+        )}
+
+        <details className="rounded-xl border border-stone-200 bg-stone-50 p-4 dark:border-zinc-700 dark:bg-zinc-900">
+          <summary className="cursor-pointer text-sm text-zinc-700 dark:text-zinc-300">View normalized payload</summary>
+          <pre className="mt-3 max-h-64 overflow-auto text-xs text-zinc-500 leading-relaxed dark:text-zinc-400">
+            {JSON.stringify(result.intake, null, 2)}
+          </pre>
+        </details>
+
+        <button
+          type="button"
+          onClick={resetAll}
+          className="w-full rounded-lg border border-stone-200 bg-white py-2.5 text-sm font-medium text-zinc-700 hover:bg-stone-50 hover:border-zinc-300 transition dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          Start a new campaign
+        </button>
+      </div>
+    );
+  }
+
+  // ── Progress bar ────────────────────────────────────────────────────────────
+  const progressBar = (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">Step {step + 1} of {STEPS.length}</p>
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{STEPS[step]}</p>
+      </div>
+      {/* Thin single-bar progress — Notion/Reacher clean style */}
+      <div className="h-[2px] bg-stone-200 rounded-full overflow-hidden dark:bg-zinc-800">
+        <div
+          className="h-full bg-zinc-900 rounded-full transition-all duration-500 ease-out dark:bg-zinc-100"
+          style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+
+  // ── Step 0 — Campaign Basics ────────────────────────────────────────────────
+  const step0 = (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2 sm:col-span-1">
+          <label className={labelCls}>Campaign name *</label>
+          <input
+            required value={campaign.name}
+            onChange={(e) => updateCampaign({ name: e.target.value })}
+            className={inputCls} placeholder="Summer launch / creators"
+          />
+        </div>
+        <div className="col-span-2 sm:col-span-1">
+          <label className={labelCls}>Brand name *</label>
+          <input
+            required value={campaign.brand}
+            onChange={(e) => updateCampaign({ brand: e.target.value })}
+            className={inputCls} placeholder="Your brand"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Step 1 — Product & Audience ────────────────────────────────────────────
+  const step1 = (
+    <div className="space-y-5">
+      <div>
+        <label className={labelCls}>Product or category *</label>
+        <input
+          required value={campaign.product}
+          onChange={(e) => updateCampaign({ product: e.target.value })}
+          className={inputCls} placeholder="e.g. Skincare serum, SaaS platform"
+        />
+      </div>
+      <div>
+        <label className={labelCls}>
+          Budget{" "}
+          <span className="font-normal text-zinc-400 dark:text-zinc-500">(optional)</span>
+        </label>
+        <div className="relative">
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 text-sm select-none">$</span>
+          <input
+            inputMode="decimal" value={campaign.budget}
+            onChange={(e) => updateCampaign({ budget: e.target.value })}
+            className={`${inputCls} pl-8`} placeholder="50,000"
+          />
+        </div>
+      </div>
+      <div>
+        <label className={labelCls}>Target audience *</label>
+        <textarea
+          required value={campaign.audience}
+          onChange={(e) => updateCampaign({ audience: e.target.value })}
+          className={textareaCls}
+          placeholder="Segments, demographics, regions you're reaching..."
+        />
+      </div>
+    </div>
+  );
+
+  // ── Step 2 — Strategy (brief) ───────────────────────────────────────────────
+  const step2 = (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-stone-200 bg-stone-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
+        <BrandContextDropzone
+          campaignLabel={campaign.name}
+          indexedSourceIds={niaSourceIds}
+          onIndexedSourceIdsChange={setNiaSourceIds}
+          title="Brief file"
+          description="If your strategy lives in a deck or doc, upload it here. We index it into Nia and use it together with the written summary below—add notes in the box if something is not in the file."
+          fileInputLabel="Upload campaign brief files"
+        />
+      </div>
+      <div>
+        <label className={labelCls}>Campaign brief *</label>
+        <textarea
+          required value={campaign.brief}
+          onChange={(e) => updateCampaign({ brief: e.target.value })}
+          className={`${textareaCls} min-h-36`}
+          placeholder="Goals, messaging, timelines, hooks, mandatory CTAs..."
+        />
+      </div>
+    </div>
+  );
+
+  // ── Step 3 — Additional documents (optional) ────────────────────────────────
+  const step3 = (
+    <div className="rounded-xl border border-stone-200 bg-stone-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
+      <BrandContextDropzone
+        campaignLabel={campaign.name}
+        indexedSourceIds={niaSourceIds}
+        onIndexedSourceIdsChange={setNiaSourceIds}
+      />
+    </div>
+  );
+
+  const stepContent = [step0, step1, step2, step3][step];
+  const isLastStep = step === STEPS.length - 1;
+
+  // ── Main render ─────────────────────────────────────────────────────────────
+  return (
+    <form onSubmit={handleSubmit}>
+      {progressBar}
+
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold text-zinc-900 mb-1 dark:text-zinc-100">{STEP_META[step].title}</h2>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{STEP_META[step].sub}</p>
+      </div>
+
+      {stepContent}
+
+      {error && (
+        <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/30 dark:text-red-400">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-7 flex gap-2.5">
+        {step > 0 && (
+          <button
+            type="button"
+            onClick={() => setStep((s) => s - 1)}
+            className="flex-1 rounded-lg border border-stone-200 bg-white py-2.5 text-sm font-medium text-zinc-700 hover:bg-stone-50 hover:border-zinc-300 transition dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            ← Back
+          </button>
+        )}
+        {!isLastStep ? (
+          <button
+            type="button"
+            disabled={!canAdvance()}
+            onClick={() => setStep((s) => s + 1)}
+            className="flex-1 rounded-lg bg-zinc-900 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+          >
+            Continue →
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="flex-1 rounded-lg bg-zinc-900 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+          >
+            {isLoading ? "Launching…" : "Launch campaign →"}
+          </button>
+        )}
+      </div>
+    </form>
   );
 }

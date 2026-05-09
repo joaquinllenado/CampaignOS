@@ -9,6 +9,23 @@ import {
 const port = Number(Bun.env.API_PORT ?? 3001);
 
 const app = new Elysia()
+  .onError(({ code, error, set }) => {
+    if (code === "NOT_FOUND") {
+      set.status = 404;
+      return {
+        error:
+          "API route not found. Start the API (e.g. bun run dev:api) and ensure the web dev server proxies /api to it."
+      };
+    }
+    if (code === "VALIDATION") {
+      set.status = 422;
+      return { error: error.message };
+    }
+    if (code === "PARSE") {
+      set.status = 400;
+      return { error: "Could not parse the request body." };
+    }
+  })
   .use(
     cors({
       origin: Bun.env.WEB_ORIGIN ?? true
@@ -54,9 +71,9 @@ const app = new Elysia()
   )
   .post(
     "/api/agent/run",
-    ({ body, set }) => {
+    async ({ body, set }) => {
       try {
-        return runAgent(body);
+        return await runAgent(body);
       } catch (error) {
         set.status = 400;
 
