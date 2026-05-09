@@ -1,26 +1,41 @@
-type Size = "sm" | "md" | "lg";
+type Size = "xs" | "sm" | "md" | "lg";
 
-const heightClass: Record<Size, string> = {
+const iconHeightClass: Record<Size, string> = {
+  /** Sidebar strip / very tight headers */
+  xs: "h-8",
   /** Mobile / compact bars */
   sm: "h-16 sm:h-20",
   /** Top app bars */
   md: "h-24 sm:h-28",
-  /** Onboarding sidebar hero */
+  /** Larger placements (non-onboarding) */
   lg: "h-40 xl:h-44",
+};
+
+/** Horizontal wordmark from `public/logo.png`. */
+const wordmarkHeightClass: Record<Size, string> = {
+  xs: "h-7 sm:h-8",
+  sm: "h-14 sm:h-16",
+  md: "h-16 sm:h-20",
+  lg: "h-20 xl:h-24",
 };
 
 type Props = {
   size?: Size;
+  /** Use full CampaignOS wordmark (onboarding only); default is the square icon. */
+  variant?: "icon" | "wordmark";
   className?: string;
 };
 
-/** Full wordmark from `public/logo.png` (designed for a black background). */
-export function CampaignLogo({ size = "md", className = "" }: Props) {
+export function CampaignLogo({ size = "md", variant = "icon", className = "" }: Props) {
+  const isWordmark = variant === "wordmark";
+  const src = isWordmark ? "/logo.png" : "/logo_icon.png";
+  const heights = isWordmark ? wordmarkHeightClass : iconHeightClass;
+
   return (
     <img
-      src="/logo.png"
+      src={src}
       alt="CampaignOS — powered by NIA and Reacher"
-      className={`${heightClass[size]} w-auto max-w-full object-contain object-left ${className}`.trim()}
+      className={`${heights[size]} w-auto max-w-full object-contain object-left ${className}`.trim()}
     />
   );
 }

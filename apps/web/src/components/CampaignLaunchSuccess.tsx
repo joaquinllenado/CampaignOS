@@ -27,7 +27,7 @@ export function CampaignLaunchSuccess({ campaign, report, onContinue }: Props) {
     <div className="min-h-screen bg-stone-50 dark:bg-zinc-950">
       <header className="border-b border-stone-200 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/85">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-10">
-          <CampaignLogo size="md" className="rounded-lg" />
+          <CampaignLogo size="xs" className="rounded-lg" />
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800">
             Strategy generated
           </span>

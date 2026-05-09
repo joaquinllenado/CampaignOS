@@ -2,17 +2,20 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CampaignIntelligenceReport, Recommendation } from "../lib/campaignTypes";
+import type { AllSection } from "./CampaignDashboard";
 import {
   CampaignDashboard,
   draftTextForCopy,
   groupDraftsByTier,
   initialDraftBodies,
-  nextDashboardView,
-  recommendationSimulationId,
-  simulateCampaignFuture,
-  sortRecommendations,
   updatedDraftBodies
 } from "./CampaignDashboard";
+import {
+  estimatedFrameworkSubScores,
+  recommendationSimulationId,
+  simulateCampaignFuture,
+  sortRecommendations
+} from "../lib/futureSimulation";
 
 const campaign = {
   name: "Summer Serum Push",
@@ -149,21 +152,21 @@ function report(overrides: Partial<CampaignIntelligenceReport> = {}): CampaignIn
   };
 }
 
-function renderDashboard(nextReport = report(), initialView: "dashboard" | "report" = "dashboard") {
+function renderDashboard(nextReport = report(), initialSection: AllSection = "overview") {
   return renderToStaticMarkup(
-    <CampaignDashboard campaign={campaign} report={nextReport} onStartNew={() => undefined} initialView={initialView} />
+    <CampaignDashboard campaign={campaign} report={nextReport} onStartNew={() => undefined} initialSection={initialSection} />
   );
 }
 
 describe("CampaignDashboard", () => {
   test("renders the empty recommended actions state", () => {
-    expect(renderDashboard(report({ recommendations: [] }))).toContain("No actions right now.");
+    expect(renderDashboard(report({ recommendations: [] }), "actions")).toContain("No actions right now.");
   });
 
   test("renders green, yellow, and red action-health labels", () => {
-    expect(renderDashboard(report({ actionHealth: { status: "green", message: "All clear." } }))).toContain("Healthy action health");
-    expect(renderDashboard(report({ actionHealth: { status: "yellow", message: "Watch medium actions." } }))).toContain("Watch action health");
-    expect(renderDashboard(report({ actionHealth: { status: "red", message: "Urgent action." } }))).toContain("Urgent action health");
+    expect(renderDashboard(report({ actionHealth: { status: "green", message: "All clear." } }))).toContain("Healthy");
+    expect(renderDashboard(report({ actionHealth: { status: "yellow", message: "Watch medium actions." } }))).toContain("Needs attention");
+    expect(renderDashboard(report({ actionHealth: { status: "red", message: "Urgent action." } }))).toContain("Urgent");
   });
 
   test("orders recommendations by priority", () => {
@@ -176,52 +179,116 @@ describe("CampaignDashboard", () => {
     expect(draftTextForCopy(draft, edited)).toBe("Edited draft body");
   });
 
-  test("toggles between dashboard and full report views", () => {
-    expect(nextDashboardView("dashboard")).toBe("report");
-    expect(nextDashboardView("report")).toBe("dashboard");
-    expect(renderDashboard(report(), "report")).toContain("Executive report");
+  test("renders report sections directly from sidebar sections", () => {
+    expect(renderDashboard(report(), "summary")).toContain("Executive summary");
+    expect(renderDashboard(report(), "creators")).toContain("High performer");
+    expect(renderDashboard(report(), "attribution")).toContain("Attribution insights");
+    expect(renderDashboard(report(), "kpis")).toContain("KPI framework");
   });
 
-  test("renders goal mix, metric meanings, and creator performance tiers", () => {
-    const markup = renderDashboard(report());
-    expect(markup).toContain("What the scores mean");
-    expect(markup).toContain("The percentages below are the goal mix.");
-    expect(markup).toContain("60%");
-    expect(markup).toContain("Gross merchandise value attributed to the creator.");
-    expect(renderDashboard(report(), "report")).toContain("High performer");
+  test("renders goal mix and metric weights in the kpis section", () => {
+    const markup = renderDashboard(report(), "kpis");
+    expect(markup).toContain("KPI framework");
+    expect(markup).toContain("Revenue contribution.");
+    expect(markup).toContain("100%");
   });
 
-  test("renders the future simulation option", () => {
+  test("renders the future simulation section", () => {
     const markup = renderDashboard(report({
       campaignSummary: {
         totalViews: 100_000,
         avgEngagementRate: 0.05,
         totalOrders: 1_000
       }
-    }));
-    expect(markup).toContain("Future simulation");
-    expect(markup).toContain("What could improve if we take action?");
-    expect(markup).toContain("Overall campaign score");
-    expect(markup).toContain("This combines your awareness, engagement, and sales scores");
+    }), "simulation");
+    expect(markup).toContain("Score projection");
+    expect(markup).toContain("Contribution waterfall");
+    expect(markup).toContain("KPI frameworks");
     expect(markup).toContain("Simulate");
   });
 
-  test("projects future metrics and KPI scores from selected recommendations", () => {
-    const nextReport = report({
-      campaignSummary: {
-        totalViews: 100_000,
-        avgEngagementRate: 0.05,
-        totalOrders: 1_000
-      }
-    });
+  test("projects framework scores upward when a relevant recommendation is selected", () => {
+    const nextReport = report();
     const sorted = sortRecommendations(nextReport.recommendations);
     const selected = new Set([recommendationSimulationId(sorted[0]!, 0)]);
     const simulation = simulateCampaignFuture(nextReport, selected, 60);
 
     expect(simulation.selectedRecommendations).toHaveLength(1);
-    expect(simulation.projectedCompositeScore).toBeGreaterThan(simulation.baselineCompositeScore);
-    expect(simulation.projectedSummary?.totalOrders).toBeGreaterThan(nextReport.campaignSummary?.totalOrders ?? 0);
-    expect(simulation.metricProjections.some((metric) => metric.key === "totalOrders")).toBe(true);
+    expect(simulation.projectedCompositeScore).toBeGreaterThanOrEqual(simulation.baselineCompositeScore);
+    const sales = simulation.frameworkProjections.find((projection) => projection.objective === "sales");
+    expect(sales?.projectedCampaignScore).toBeGreaterThan(sales?.baselineCampaignScore ?? 0);
+  });
+
+  test("returns zero delta and the empty-state narrative when no recommendations are selected", () => {
+    const simulation = simulateCampaignFuture(report(), new Set(), 60);
+    expect(simulation.projectedCompositeScore).toBe(simulation.baselineCompositeScore);
+    expect(simulation.contributions).toHaveLength(0);
+    expect(simulation.narrative).toContain("Select recommendations");
+  });
+
+  test("respects headroom: a high baseline framework score moves less than a low one", () => {
+    const sorted = sortRecommendations(report().recommendations);
+    const selected = new Set(sorted.map((rec, index) => recommendationSimulationId(rec, index)));
+    const high = simulateCampaignFuture(report({
+      frameworkEvaluations: [{ ...report().frameworkEvaluations[0]!, campaignScore: 95 }]
+    }), selected, 60);
+    const low = simulateCampaignFuture(report({
+      frameworkEvaluations: [{ ...report().frameworkEvaluations[0]!, campaignScore: 40 }]
+    }), selected, 60);
+    const highDelta = high.frameworkProjections[0]!.projectedCampaignScore - high.frameworkProjections[0]!.baselineCampaignScore;
+    const lowDelta = low.frameworkProjections[0]!.projectedCampaignScore - low.frameworkProjections[0]!.baselineCampaignScore;
+    expect(lowDelta).toBeGreaterThan(highDelta);
+  });
+
+  test("the confidence band brackets the expected projection", () => {
+    const sorted = sortRecommendations(report().recommendations);
+    const selected = new Set(sorted.map((rec, index) => recommendationSimulationId(rec, index)));
+    const simulation = simulateCampaignFuture(report(), selected, 60);
+    expect(simulation.compositeBand.conservative).toBeLessThanOrEqual(simulation.compositeBand.expected);
+    expect(simulation.compositeBand.expected).toBeLessThanOrEqual(simulation.compositeBand.optimistic);
+  });
+
+  test("a longer horizon realises a larger projected lift", () => {
+    const sorted = sortRecommendations(report().recommendations);
+    const selected = new Set(sorted.map((rec, index) => recommendationSimulationId(rec, index)));
+    const short = simulateCampaignFuture(report(), selected, 30);
+    const long = simulateCampaignFuture(report(), selected, 90);
+    expect(long.projectedCompositeScore).toBeGreaterThanOrEqual(short.projectedCompositeScore);
+  });
+
+  test("flags recommendations that target metrics not in any framework as unmodeled", () => {
+    const measurement: Recommendation = {
+      id: "rec-measure",
+      priority: "low",
+      category: "measurement",
+      action: "Track add-to-cart drop-off",
+      rationale: "Better attribution.",
+      expectedImpact: "Improves clarity."
+    };
+    const reportWithUnmappedFramework = report({
+      recommendations: [measurement],
+      frameworkEvaluations: [{
+        ...report().frameworkEvaluations[0]!,
+        framework: {
+          ...report().frameworkEvaluations[0]!.framework,
+          metrics: [{ name: "gmv", weight: 100, reason: "Revenue contribution." }]
+        }
+      }]
+    });
+    const selected = new Set([recommendationSimulationId(measurement, 0)]);
+    const simulation = simulateCampaignFuture(reportWithUnmappedFramework, selected, 60);
+    expect(simulation.unmodeledRecommendations).toHaveLength(1);
+    expect(simulation.contributions[0]?.unmodeled).toBe(true);
+    expect(simulation.narrative).toContain("not weighted in this campaign's KPI frameworks");
+  });
+
+  test("estimates per-metric sub-scores from creator evidence flags", () => {
+    const framework = report().frameworkEvaluations[0]!;
+    const subScores = estimatedFrameworkSubScores(framework);
+    expect(subScores).toHaveLength(framework.framework.metrics.length);
+    const gmv = subScores.find((item) => item.metricName === "gmv")!;
+    // gmv was flagged as a strength for the lone creator, so its sub-score should be at or above the framework score.
+    expect(gmv.baselineSubScore).toBeGreaterThanOrEqual(framework.campaignScore);
   });
 
   test("groups drafts into performance tiers using creator evaluations", () => {

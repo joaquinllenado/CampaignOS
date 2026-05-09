@@ -10,174 +10,43 @@ import type {
   CampaignMetricSummary,
   CreatorEvaluation,
   CreatorMessageDraft,
-  FrameworkEvaluation,
-  Recommendation
+  FrameworkEvaluation
 } from "../lib/campaignTypes";
+import {
+  recommendationSimulationId,
+  simulateCampaignFuture,
+  sortRecommendations,
+  SIMULATION_HORIZONS,
+  type SimulationHorizon,
+  type RecommendationContribution,
+} from "../lib/futureSimulation";
 
 type DraftTier = "high" | "average" | "low";
-type SimulationHorizon = 30 | 60 | 90;
-type NumericCampaignMetricKey =
-  | "postingCreators"
-  | "videosPosted"
-  | "totalViews"
-  | "avgDailyViews"
-  | "peakVisibilityViews"
-  | "totalLikes"
-  | "totalComments"
-  | "avgEngagementRate"
-  | "totalOrders"
-  | "newCreatorsPosting"
-  | "creatorsReached"
-  | "creatorsMessaged"
-  | "tcInvitesSent";
-
-type SimulationMetricProjection = {
-  key: NumericCampaignMetricKey;
-  label: string;
-  baseline: number;
-  projected: number;
-  deltaPercent: number;
-};
-
-type FutureSimulation = {
-  selectedRecommendations: Recommendation[];
-  projectedSummary?: CampaignMetricSummary;
-  metricProjections: SimulationMetricProjection[];
-  baselineCompositeScore: number;
-  projectedCompositeScore: number;
-  projectedFrameworkScores: Array<{
-    objective: FrameworkEvaluation["objective"];
-    baseline: number;
-    projected: number;
-  }>;
-  narrative: string;
-};
 
 type Props = {
   campaign: CampaignIntakeFields;
   report: CampaignIntelligenceReport;
   onStartNew: () => void;
-  initialView?: DashboardView;
-  /** When enabled (dev toggle), periodically appends contextual activity alongside the baseline report timeline. */
+  initialSection?: AllSection;
   demoAutonomousPulse?: boolean;
 };
 
-export type DashboardView = "dashboard" | "report";
+type DashboardSection = "overview" | "simulation" | "actions" | "activity" | "outreach";
+type ReportSection = "kpis" | "summary" | "creators" | "attribution";
+export type AllSection = DashboardSection | ReportSection;
 
-const healthStyles: Record<ActionHealth["status"], { bg: string; dot: string; label: string }> = {
-  green: { bg: "bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-100", dot: "bg-emerald-500", label: "Healthy" },
-  yellow: { bg: "bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-100", dot: "bg-amber-500", label: "Watch" },
-  red: { bg: "bg-red-50 border-red-200 text-red-900 dark:bg-red-950/30 dark:border-red-800 dark:text-red-100", dot: "bg-red-500", label: "Urgent" }
+const healthStyles: Record<ActionHealth["status"], { bg: string; dot: string; label: string; accent: string }> = {
+  green: { bg: "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800/60", dot: "bg-emerald-500", label: "Healthy", accent: "text-emerald-700 dark:text-emerald-300" },
+  yellow: { bg: "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/60", dot: "bg-amber-500", label: "Needs attention", accent: "text-amber-700 dark:text-amber-300" },
+  red: { bg: "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800/60", dot: "bg-red-500", label: "Urgent", accent: "text-red-700 dark:text-red-300" }
 };
 
-const priorityRank: Record<Recommendation["priority"], number> = { high: 0, medium: 1, low: 2 };
 const objectiveOrder = ["sales", "engagement", "awareness"] as const;
-const simulationHorizons: SimulationHorizon[] = [30, 60, 90];
-const simulationHorizonScale: Record<SimulationHorizon, number> = { 30: 0.75, 60: 1, 90: 1.25 };
 const tierStyles = {
   high: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800",
   average: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-800",
   low: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-800"
 };
-
-const prioritySimulationImpact: Record<Recommendation["priority"], number> = {
-  high: 0.12,
-  medium: 0.07,
-  low: 0.035
-};
-
-const categoryMetricLift: Record<Recommendation["category"], Partial<Record<NumericCampaignMetricKey, number>>> = {
-  creator_mix: {
-    postingCreators: 1.15,
-    newCreatorsPosting: 1.1,
-    videosPosted: 0.9,
-    totalViews: 0.85,
-    peakVisibilityViews: 0.75,
-    creatorsReached: 0.8,
-    creatorsMessaged: 0.65
-  },
-  creative_direction: {
-    totalViews: 1,
-    avgDailyViews: 0.9,
-    peakVisibilityViews: 0.8,
-    totalLikes: 0.85,
-    totalComments: 0.8,
-    avgEngagementRate: 0.75,
-    videosPosted: 0.35
-  },
-  cta: {
-    totalOrders: 1.2,
-    avgEngagementRate: 0.35,
-    totalComments: 0.45,
-    totalLikes: 0.25,
-    totalViews: 0.2
-  },
-  budget: {
-    totalViews: 0.9,
-    avgDailyViews: 0.8,
-    peakVisibilityViews: 0.75,
-    totalOrders: 0.7,
-    creatorsReached: 0.85,
-    videosPosted: 0.6
-  },
-  audience: {
-    totalViews: 0.65,
-    avgEngagementRate: 0.8,
-    totalLikes: 0.65,
-    totalComments: 0.7,
-    totalOrders: 0.55
-  },
-  measurement: {
-    creatorsMessaged: 0.35,
-    tcInvitesSent: 0.3
-  }
-};
-
-const categoryObjectiveLift: Record<Recommendation["category"], Partial<Record<FrameworkEvaluation["objective"], number>>> = {
-  creator_mix: { awareness: 0.9, engagement: 0.55, sales: 0.45 },
-  creative_direction: { awareness: 0.8, engagement: 0.9, sales: 0.35 },
-  cta: { sales: 1, engagement: 0.45 },
-  budget: { awareness: 0.75, sales: 0.55, engagement: 0.35 },
-  audience: { awareness: 0.55, engagement: 0.75, sales: 0.5 },
-  measurement: { sales: 0.35, engagement: 0.3, awareness: 0.25 }
-};
-
-const simulationMetricLabels: Record<NumericCampaignMetricKey, string> = {
-  postingCreators: "Posting Creators",
-  videosPosted: "Videos Posted",
-  totalViews: "Views",
-  avgDailyViews: "Avg Daily Views",
-  peakVisibilityViews: "Peak Visibility",
-  totalLikes: "Likes",
-  totalComments: "Comments",
-  avgEngagementRate: "Engagement Rate",
-  totalOrders: "Orders",
-  newCreatorsPosting: "New Creators",
-  creatorsReached: "Creators Reached",
-  creatorsMessaged: "Creators Messaged",
-  tcInvitesSent: "TC Invites"
-};
-
-const simulationMetricOrder: NumericCampaignMetricKey[] = [
-  "totalViews",
-  "avgDailyViews",
-  "avgEngagementRate",
-  "totalOrders",
-  "totalLikes",
-  "totalComments",
-  "postingCreators",
-  "videosPosted",
-  "creatorsReached",
-  "creatorsMessaged"
-];
-
-export function sortRecommendations(recommendations: Recommendation[]) {
-  return [...recommendations].sort((a, b) => priorityRank[a.priority] - priorityRank[b.priority]);
-}
-
-export function recommendationSimulationId(recommendation: Recommendation, index: number) {
-  return recommendation.id ?? `${recommendation.priority}-${recommendation.category}-${index}`;
-}
 
 export function initialDraftBodies(drafts: CreatorMessageDraft[]) {
   return Object.fromEntries(drafts.map((draft) => [draft.id, draft.body]));
@@ -189,10 +58,6 @@ export function updatedDraftBodies(current: Record<string, string>, draftId: str
 
 export function draftTextForCopy(draft: CreatorMessageDraft, draftBodies: Record<string, string>) {
   return draftBodies[draft.id] ?? draft.body;
-}
-
-export function nextDashboardView(view: DashboardView): DashboardView {
-  return view === "dashboard" ? "report" : "dashboard";
 }
 
 const draftTierOrder: DraftTier[] = ["high", "average", "low"];
@@ -230,195 +95,92 @@ function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function formatSignedPercent(value: number) {
-  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`;
-}
-
-function roundProjectedMetric(key: NumericCampaignMetricKey, value: number) {
-  if (key === "avgEngagementRate") return Math.min(1, Number(value.toFixed(4)));
-  return Math.round(value);
-}
-
-function formatSimulationMetricValue(key: NumericCampaignMetricKey, value: number) {
-  return key === "avgEngagementRate" ? formatPercent(value) : formatCompactNumber(value);
-}
-
-function combineMetricLifts(recommendations: Recommendation[], horizon: SimulationHorizon) {
-  const lifts: Partial<Record<NumericCampaignMetricKey, number>> = {};
-  for (const recommendation of recommendations) {
-    const impact = prioritySimulationImpact[recommendation.priority] * simulationHorizonScale[horizon];
-    const metricLifts = categoryMetricLift[recommendation.category];
-    for (const key of Object.keys(metricLifts) as NumericCampaignMetricKey[]) {
-      lifts[key] = Math.min(0.45, (lifts[key] ?? 0) + impact * (metricLifts[key] ?? 0));
-    }
-  }
-  return lifts;
-}
-
-function projectCampaignSummary(
-  summary: CampaignMetricSummary | undefined,
-  recommendations: Recommendation[],
-  horizon: SimulationHorizon
-): CampaignMetricSummary | undefined {
-  if (!summary) return undefined;
-  const lifts = combineMetricLifts(recommendations, horizon);
-  const projected: CampaignMetricSummary & Partial<Record<NumericCampaignMetricKey, number>> = { ...summary };
-
-  for (const key of Object.keys(lifts) as NumericCampaignMetricKey[]) {
-    const baseline = summary[key];
-    if (typeof baseline !== "number") continue;
-    projected[key] = roundProjectedMetric(key, baseline * (1 + (lifts[key] ?? 0)));
-  }
-
-  return projected;
-}
-
-function weightedCompositeScore(
-  evaluations: Array<{ objective: FrameworkEvaluation["objective"]; campaignScore: number }>,
-  weights: CampaignIntelligenceReport["objectiveBlend"]["weights"]
-) {
-  const totalWeight = evaluations.reduce((sum, evaluation) => sum + (weights[evaluation.objective] ?? 0), 0);
-  if (!evaluations.length || totalWeight <= 0) return 0;
-  return Math.round(
-    evaluations.reduce((sum, evaluation) => sum + evaluation.campaignScore * (weights[evaluation.objective] ?? 0), 0) /
-      totalWeight
-  );
-}
-
-function projectFrameworkScore(
-  framework: FrameworkEvaluation,
-  recommendations: Recommendation[],
-  horizon: SimulationHorizon
-) {
-  const lift = recommendations.reduce((sum, recommendation) => {
-    const priorityLift = prioritySimulationImpact[recommendation.priority] * 100 * 0.55;
-    const categoryLift = categoryObjectiveLift[recommendation.category][framework.objective] ?? 0.2;
-    return sum + priorityLift * categoryLift * simulationHorizonScale[horizon];
-  }, 0);
-  return Math.min(100, Math.round(framework.campaignScore + Math.min(16, lift)));
-}
-
-export function simulateCampaignFuture(
-  report: CampaignIntelligenceReport,
-  selectedRecommendationIds: Set<string>,
-  horizon: SimulationHorizon
-): FutureSimulation {
-  const sorted = sortRecommendations(report.recommendations);
-  const selectedRecommendations = sorted.filter((recommendation, index) =>
-    selectedRecommendationIds.has(recommendationSimulationId(recommendation, index))
-  );
-  const projectedSummary = projectCampaignSummary(report.campaignSummary, selectedRecommendations, horizon);
-  const projectedFrameworkScores = report.frameworkEvaluations.map((framework) => ({
-    objective: framework.objective,
-    baseline: framework.campaignScore,
-    projected: selectedRecommendations.length
-      ? projectFrameworkScore(framework, selectedRecommendations, horizon)
-      : framework.campaignScore
-  }));
-  const baselineCompositeScore = weightedCompositeScore(report.frameworkEvaluations, report.objectiveBlend.weights);
-  const projectedCompositeScore = weightedCompositeScore(
-    projectedFrameworkScores.map((framework) => ({
-      objective: framework.objective,
-      campaignScore: framework.projected
-    })),
-    report.objectiveBlend.weights
-  );
-
-  const metricProjections = projectedSummary
-    ? simulationMetricOrder.flatMap((key) => {
-        const baseline = report.campaignSummary?.[key];
-        const projected = projectedSummary[key];
-        if (typeof baseline !== "number" || typeof projected !== "number" || baseline <= 0) return [];
-        return [{
-          key,
-          label: simulationMetricLabels[key],
-          baseline,
-          projected,
-          deltaPercent: projected / baseline - 1
-        }];
-      }).slice(0, 6)
-    : [];
-
-  const narrative = selectedRecommendations.length
-    ? `Applying ${selectedRecommendations.length} recommendation${selectedRecommendations.length === 1 ? "" : "s"} over ${horizon} days projects a ${projectedCompositeScore - baselineCompositeScore >= 0 ? "+" : ""}${projectedCompositeScore - baselineCompositeScore} point move in the overall campaign score.`
-    : "Select recommendations to simulate how actioning them could change future performance.";
-
-  return {
-    selectedRecommendations,
-    projectedSummary,
-    metricProjections,
-    baselineCompositeScore,
-    projectedCompositeScore,
-    projectedFrameworkScores,
-    narrative
-  };
+function formatSignedPoints(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(1)} pts`;
 }
 
 function summaryMetricCards(summary: CampaignMetricSummary) {
   return [
     summary.totalViews !== undefined && { label: "Views", value: formatCompactNumber(summary.totalViews) },
-    summary.avgDailyViews !== undefined && { label: "Avg Daily Views", value: formatCompactNumber(summary.avgDailyViews) },
-    summary.peakVisibilityViews !== undefined && { label: "Peak visibility", value: formatCompactNumber(summary.peakVisibilityViews) },
+    summary.avgDailyViews !== undefined && { label: "Daily Views", value: formatCompactNumber(summary.avgDailyViews) },
+    summary.peakVisibilityViews !== undefined && { label: "Peak Views", value: formatCompactNumber(summary.peakVisibilityViews) },
     summary.totalLikes !== undefined && { label: "Likes", value: formatCompactNumber(summary.totalLikes) },
     summary.totalComments !== undefined && { label: "Comments", value: formatCompactNumber(summary.totalComments) },
-    summary.avgEngagementRate !== undefined && { label: "Engagement Rate", value: formatPercent(summary.avgEngagementRate) },
+    summary.avgEngagementRate !== undefined && { label: "Eng. Rate", value: formatPercent(summary.avgEngagementRate) },
     summary.totalOrders !== undefined && { label: "Orders", value: formatCompactNumber(summary.totalOrders) },
-    summary.postingCreators !== undefined && { label: "Posting Creators", value: formatCompactNumber(summary.postingCreators) },
-    summary.videosPosted !== undefined && { label: "Videos Posted", value: formatCompactNumber(summary.videosPosted) },
-    summary.creatorsMessaged !== undefined && { label: "Creators messaged", value: formatCompactNumber(summary.creatorsMessaged) }
+    summary.postingCreators !== undefined && { label: "Posting", value: formatCompactNumber(summary.postingCreators) },
+    summary.videosPosted !== undefined && { label: "Videos", value: formatCompactNumber(summary.videosPosted) },
+    summary.creatorsMessaged !== undefined && { label: "Messaged", value: formatCompactNumber(summary.creatorsMessaged) }
   ].filter((item): item is { label: string; value: string } => Boolean(item));
-}
-
-function SectionHeader({ eyebrow, title, hint }: { eyebrow: string; title: string; hint?: string }) {
-  return (
-    <div className="mb-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">{eyebrow}</p>
-      <h3 className="mt-1 text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">{title}</h3>
-      {hint ? <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{hint}</p> : null}
-    </div>
-  );
 }
 
 function Card({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
-    <section className={`rounded-2xl border border-stone-200 bg-white p-7 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}>
+    <section className={`rounded-xl border border-stone-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 ${className}`}>
       {children}
     </section>
   );
 }
 
-function FrameworkMetricList({ framework }: { framework: FrameworkEvaluation }) {
-  const definitions = new Map(framework.metricDefinitions.map((definition) => [definition.name, definition]));
-
+function SectionHeading({ label, sub }: { label: string; sub?: string }) {
   return (
-    <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-5 dark:border-zinc-800 dark:bg-zinc-950/40">
-      <div className="flex items-start justify-between gap-3">
+    <div className="mb-4">
+      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{label}</h3>
+      {sub && <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{sub}</p>}
+    </div>
+  );
+}
+
+function Icon({ path, className = "h-4 w-4" }: { path: string; className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d={path} />
+    </svg>
+  );
+}
+
+const ICONS = {
+  overview:    "M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z",
+  simulation:  "M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941",
+  actions:     "m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z",
+  activity:    "M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
+  outreach:    "M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75",
+  summary:     "M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z",
+  creators:    "M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z",
+  attribution: "M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z",
+  new:         "M12 4.5v15m7.5-7.5h-15",
+  chevLeft:    "M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5",
+  chevRight:   "M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5",
+};
+
+function FrameworkMetricList({ framework }: { framework: FrameworkEvaluation }) {
+  const definitions = new Map(framework.metricDefinitions.map((d) => [d.name, d]));
+  return (
+    <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{titleCase(framework.objective)}</p>
-          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            {framework.campaignScore}/100 score · {framework.confidence} confidence
-          </p>
+          <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{titleCase(framework.objective)}</p>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{framework.confidence} confidence</p>
         </div>
+        <span className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{framework.campaignScore}</span>
       </div>
-      <ul className="mt-4 max-h-[22rem] space-y-4 overflow-y-auto pr-2">
+      <ul className="mt-3 max-h-[20rem] space-y-2.5 overflow-y-auto pr-1">
         {framework.framework.metrics.map((metric) => {
-          const definition = definitions.get(metric.name);
+          const def = definitions.get(metric.name);
           return (
-            <li key={`${framework.objective}-${metric.name}`} className="border-t border-stone-200/70 pt-4 text-xs dark:border-zinc-800">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  {definition?.displayName ?? titleCase(metric.name)}
+            <li key={`${framework.objective}-${metric.name}`} className="border-t border-stone-200/70 pt-2.5 dark:border-zinc-800">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                  {def?.displayName ?? titleCase(metric.name)}
                 </span>
-                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-600 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700">
+                <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">
                   {metric.weight}%
                 </span>
               </div>
-              <p className="mt-2 leading-5 text-zinc-500 dark:text-zinc-400">
-                {definition?.definition ?? metric.reason}
-              </p>
-              <p className="mt-1.5 leading-5 text-zinc-500 dark:text-zinc-400">
-                Why it matters: {definition?.whyItMatters ?? metric.reason}
-              </p>
+              {def?.definition && (
+                <p className="mt-1 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{def.definition}</p>
+              )}
             </li>
           );
         })}
@@ -427,14 +189,91 @@ function FrameworkMetricList({ framework }: { framework: FrameworkEvaluation }) 
   );
 }
 
+function ContributionRow({
+  contribution,
+  maxAbsContribution
+}: {
+  contribution: RecommendationContribution;
+  maxAbsContribution: number;
+}) {
+  const widthPercent = Math.min(100, (Math.abs(contribution.compositePoints) / maxAbsContribution) * 100);
+  const positive = contribution.compositePoints >= 0;
+  return (
+    <li className="rounded-xl border border-stone-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white dark:bg-zinc-100 dark:text-zinc-900">
+              {contribution.recommendation.priority}
+            </span>
+            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700">
+              {titleCase(contribution.recommendation.category)}
+            </span>
+          </div>
+          <p className="mt-1.5 text-xs font-medium text-zinc-900 dark:text-zinc-100">{contribution.recommendation.action}</p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${positive ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800" : "bg-stone-100 text-zinc-500 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700"}`}>
+          {formatSignedPoints(contribution.compositePoints)}
+        </span>
+      </div>
+      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-stone-100 dark:bg-zinc-800">
+        <div
+          className={`h-full rounded-full ${positive ? "bg-emerald-500" : "bg-stone-300 dark:bg-zinc-600"}`}
+          style={{ width: `${widthPercent}%` }}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+        {contribution.perFrameworkPoints.filter((e) => Math.abs(e.points) >= 0.05).map((e) => (
+          <span key={e.objective}>{titleCase(e.objective)} {formatSignedPoints(e.points)}</span>
+        ))}
+        {contribution.unmodeled && <span className="text-amber-600 dark:text-amber-400">Outside framework</span>}
+      </div>
+      {contribution.perMetricLifts.length ? (
+        <details className="group mt-2">
+          <summary className="cursor-pointer list-none text-[11px] font-medium text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
+            <span className="group-open:hidden">Show math ↓</span>
+            <span className="hidden group-open:inline">Hide ↑</span>
+          </summary>
+          <table className="mt-2 w-full text-left text-[11px]">
+            <thead className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              <tr>
+                <th className="py-1 pr-2 font-semibold">Framework</th>
+                <th className="py-1 pr-2 font-semibold">Metric</th>
+                <th className="py-1 pr-2 font-semibold">Wt</th>
+                <th className="py-1 pr-2 font-semibold">Sub-score</th>
+                <th className="py-1 text-right font-semibold">Pts</th>
+              </tr>
+            </thead>
+            <tbody className="text-zinc-600 dark:text-zinc-300">
+              {contribution.perMetricLifts.map((lift) => (
+                <tr key={`${lift.objective}-${lift.metricName}`} className="border-t border-stone-100 dark:border-zinc-800">
+                  <td className="py-1 pr-2">{titleCase(lift.objective)}</td>
+                  <td className="py-1 pr-2">{titleCase(lift.metricName)}</td>
+                  <td className="py-1 pr-2">{lift.weight}%</td>
+                  <td className="py-1 pr-2">{lift.subScoreBefore}→{lift.subScoreAfter}</td>
+                  <td className="py-1 text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                    {formatSignedPoints(lift.pointContributionToFramework)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      ) : null}
+    </li>
+  );
+}
+
 export function CampaignDashboard({
   campaign,
   report,
   onStartNew,
-  initialView = "dashboard",
+  initialSection = "overview",
   demoAutonomousPulse = false
 }: Props) {
-  const [view, setView] = useState<DashboardView>(initialView);
+  const [activeSection, setActiveSection] = useState<AllSection>(initialSection);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   const [draftBodies, setDraftBodies] = useState<Record<string, string>>(() => initialDraftBodies(report.creatorMessageDrafts));
   const [copiedDraftId, setCopiedDraftId] = useState<string | null>(null);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(
@@ -453,10 +292,7 @@ export function CampaignDashboard({
     reportGeneratedAt: report.generatedAt
   });
 
-  const sortedRecommendations = useMemo(
-    () => sortRecommendations(report.recommendations),
-    [report.recommendations]
-  );
+  const sortedRecommendations = useMemo(() => sortRecommendations(report.recommendations), [report.recommendations]);
   const health = healthStyles[report.actionHealth.status];
   const campaignSummaryCards = report.campaignSummary ? summaryMetricCards(report.campaignSummary) : [];
   const futureSimulation = useMemo(
@@ -469,8 +305,7 @@ export function CampaignDashboard({
   );
 
   async function copyDraft(draft: CreatorMessageDraft) {
-    const text = draftTextForCopy(draft, draftBodies);
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(draftTextForCopy(draft, draftBodies));
     setCopiedDraftId(draft.id);
     window.setTimeout(() => setCopiedDraftId(null), 1600);
   }
@@ -495,11 +330,11 @@ export function CampaignDashboard({
 
   function saveDraft(draftId: string) {
     setSavedDraftId(draftId);
-    window.setTimeout(() => setSavedDraftId((current) => (current === draftId ? null : current)), 1600);
+    window.setTimeout(() => setSavedDraftId((c) => (c === draftId ? null : c)), 1600);
   }
 
   async function sendBatch(tier: DraftTier) {
-    const tierDrafts = draftsByTier[tier].filter((draft) => selectedDraftIds.has(draft.id));
+    const tierDrafts = draftsByTier[tier].filter((d) => selectedDraftIds.has(d.id));
     if (!tierDrafts.length) {
       setBatchFeedback((prev) => ({ ...prev, [tier]: { ok: false, message: "Select at least one draft to send." } }));
       return;
@@ -510,191 +345,236 @@ export function CampaignDashboard({
       const result = await sendOutreachBatch({
         tier,
         campaignName: campaign.name || "Untitled campaign",
-        drafts: tierDrafts.map((draft) => ({
-          creatorName: draft.creatorName,
-          creatorHandle: draft.creatorHandle,
-          body: draftTextForCopy(draft, draftBodies)
-        }))
+        drafts: tierDrafts.map((d) => ({ creatorName: d.creatorName, creatorHandle: d.creatorHandle, body: draftTextForCopy(d, draftBodies) }))
       });
       setBatchFeedback((prev) => ({ ...prev, [tier]: { ok: result.ok, message: result.message } }));
     } catch (error) {
-      setBatchFeedback((prev) => ({
-        ...prev,
-        [tier]: { ok: false, message: error instanceof Error ? error.message : "Failed to send batch." }
-      }));
+      setBatchFeedback((prev) => ({ ...prev, [tier]: { ok: false, message: error instanceof Error ? error.message : "Failed to send batch." } }));
     } finally {
       setSendingTier(null);
     }
   }
 
-  const dashboardView = (
-    <div className="space-y-6">
-      {/* Action health — full width */}
-      <section className={`rounded-2xl border p-6 ${health.bg}`}>
-        <div className="flex items-start gap-4">
-          <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${health.dot}`} />
-          <div>
-            <p className="text-sm font-semibold">{health.label} action health</p>
-            <p className="mt-1.5 text-sm leading-6">{report.actionHealth.message}</p>
-            <a href="#recommended-actions" className="mt-3 inline-block text-sm font-medium underline underline-offset-4">
-              Review recommended actions
-            </a>
-          </div>
-        </div>
+  // ── Section content ──────────────────────────────────────────────────────────
+
+  const recPriorityStyles = {
+    high: "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300",
+    medium: "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
+    low: "bg-stone-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+  } as const;
+
+  const overviewSection = (
+    <div className="space-y-4">
+      {/* Health banner — compact inline strip */}
+      <section className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${health.bg}`}>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${health.dot}`} />
+        <p className={`flex-1 text-xs font-medium text-zinc-700 dark:text-zinc-300`}>
+          <span className={`font-semibold ${health.accent}`}>{health.label} · </span>
+          {report.actionHealth.message}
+        </p>
+        <button type="button" onClick={() => setActiveSection("actions")} className={`shrink-0 text-xs font-semibold underline underline-offset-4 ${health.accent}`}>
+          View actions →
+        </button>
       </section>
 
-      {/* 2-column grid: left = snapshot / metrics / framework · right = actions / activity */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-        {/* ── Left column ── */}
-        <div className="space-y-6">
-          <Card className="shadow-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-white dark:bg-zinc-100 dark:text-zinc-900">
-                Performance snapshot
-              </span>
+      {/* Metric stat cards row */}
+      {campaignSummaryCards.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {campaignSummaryCards.slice(0, 5).map((metric) => (
+            <div key={metric.label} className="rounded-xl border border-stone-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">{metric.label}</p>
+              <p className="mt-1.5 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{metric.value}</p>
             </div>
-            <p className="mt-5 text-xl font-medium leading-8 text-zinc-900 dark:text-zinc-100">
-              {report.performanceSnapshot}
-            </p>
-            <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-              Confidence: {report.confidence} · Data source: {report.dataProvenance.contextSource} context + {report.dataProvenance.metricsSource} metrics
-            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Main 2-col: snapshot + actions */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+        {/* Left: snapshot + framework scores */}
+        <div className="space-y-4">
+          <Card>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Performance snapshot</span>
+              <span className="text-[11px] capitalize text-zinc-400 dark:text-zinc-500">{report.confidence} confidence</span>
+            </div>
+            <p className="text-base font-medium leading-7 text-zinc-900 dark:text-zinc-100">{report.performanceSnapshot}</p>
           </Card>
 
-          {report.campaignSummary && campaignSummaryCards.length ? (
-            <Card>
-              <SectionHeader
-                eyebrow="Reacher dashboard metrics"
-                title="Campaign pull summary"
-                hint={[
-                  report.campaignSummary.campaignType,
-                  report.campaignSummary.campaignWindow,
-                  report.campaignSummary.status
-                ].filter(Boolean).join(" · ")}
-              />
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {campaignSummaryCards.map((metric) => (
-                  <div key={metric.label} className="min-w-0 rounded-xl border border-stone-200 bg-stone-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
-                    <p className="truncate text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">{metric.label}</p>
-                    <p className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">{metric.value}</p>
-                  </div>
-                ))}
+          {/* Objective scores across */}
+          <div className="grid grid-cols-3 gap-3">
+            {report.frameworkEvaluations.map((fw) => (
+              <div key={fw.objective} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">{titleCase(fw.objective)}</p>
+                <p className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{fw.campaignScore}</p>
+                <p className="mt-0.5 text-[10px] capitalize text-zinc-400 dark:text-zinc-500">{fw.confidence} conf.</p>
               </div>
-              {report.campaignSummary.keyTakeaways?.length ? (
-                <p className="mt-5 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-                  {report.campaignSummary.keyTakeaways[0]}
-                </p>
-              ) : null}
-            </Card>
-          ) : null}
+            ))}
+          </div>
 
+          {/* Score trajectory */}
           <Card>
-            <SectionHeader
-              eyebrow="Future simulation"
-              title="What could improve if we take action?"
-              hint="This projects how selected recommendations could change campaign performance over the next 30, 60, or 90 days."
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              {simulationHorizons.map((horizon) => (
-                <button
-                  key={horizon}
-                  type="button"
-                  onClick={() => setSimulationHorizon(horizon)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    simulationHorizon === horizon
-                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                      : "bg-stone-100 text-zinc-600 ring-1 ring-stone-200 hover:bg-stone-200 dark:bg-zinc-950 dark:text-zinc-300 dark:ring-zinc-800 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {horizon} days
-                </button>
-              ))}
-              <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {futureSimulation.selectedRecommendations.length} action{futureSimulation.selectedRecommendations.length === 1 ? "" : "s"} selected
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Score trajectory · {simulationHorizon}d</span>
+              <button type="button" onClick={() => setActiveSection("simulation")} className="text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200">Simulate →</button>
+            </div>
+            <div className="flex items-end gap-3">
+              <p className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                {futureSimulation.baselineCompositeScore}
+                <span className="mx-2 text-xl font-normal text-zinc-400">→</span>
+                {futureSimulation.projectedCompositeScore}
+              </p>
+              <span className="mb-0.5 text-base font-semibold text-emerald-600 dark:text-emerald-400">
+                {formatSignedPoints(futureSimulation.projectedCompositeScore - futureSimulation.baselineCompositeScore)}
               </span>
             </div>
-            <div className="mt-5 rounded-xl border border-stone-200 bg-stone-50/60 p-5 dark:border-zinc-800 dark:bg-zinc-950/40">
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">
-                    Overall campaign score
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                    {futureSimulation.baselineCompositeScore} → {futureSimulation.projectedCompositeScore}
-                  </p>
-                  <p className="mt-2 max-w-xl text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-                    This combines your awareness, engagement, and sales scores into one 0-100 score using the goal mix below.
-                    A sales-focused campaign weights sales more heavily; an awareness-focused campaign weights reach and visibility more heavily.
-                  </p>
+            <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400 line-clamp-2">{futureSimulation.narrative}</p>
+          </Card>
+        </div>
+
+        {/* Right: top actions */}
+        <Card className="flex flex-col">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Top actions</span>
+            <button type="button" onClick={() => setActiveSection("actions")} className="text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200">All →</button>
+          </div>
+          <ul className="flex-1 space-y-2.5">
+            {sortedRecommendations.slice(0, 5).map((rec, idx) => (
+              <li key={`${idx}-${rec.action}`} className="rounded-lg border border-stone-200 bg-stone-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
+                <div className="flex items-center gap-1.5">
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${recPriorityStyles[rec.priority]}`}>{rec.priority}</span>
+                  <span className="truncate text-[10px] text-zinc-400 dark:text-zinc-500">{titleCase(rec.category)}</span>
                 </div>
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800">
-                  {futureSimulation.projectedCompositeScore - futureSimulation.baselineCompositeScore >= 0 ? "+" : ""}
-                  {futureSimulation.projectedCompositeScore - futureSimulation.baselineCompositeScore} pts
+                <p className="mt-1.5 text-xs font-medium leading-4 text-zinc-900 dark:text-zinc-100 line-clamp-2">{rec.action}</p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </div>
+
+      {/* Bottom 3-col row */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Goal weights */}
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Goal weights</span>
+            <span className="text-[11px] capitalize text-zinc-400 dark:text-zinc-500">{report.objectiveBlend.confidence}</span>
+          </div>
+          <div className="space-y-2">
+            {objectiveOrder.map((objective) => (
+              <div key={objective} className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50/70 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/40">
+                <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{titleCase(objective)}</p>
+                <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{report.objectiveBlend.weights[objective]}%</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Creators preview */}
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Top creators</span>
+            <button type="button" onClick={() => setActiveSection("creators")} className="text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200">All →</button>
+          </div>
+          <ul className="space-y-2">
+            {[...report.creatorEvaluations].sort((a, b) => a.rank - b.rank).slice(0, 4).map((creator) => (
+              <li key={creator.creatorName} className="flex items-center justify-between gap-2 rounded-lg border border-stone-200 bg-stone-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+                <span className="min-w-0 text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                  <span className="mr-1.5 text-zinc-400">#{creator.rank}</span>{creator.creatorName}
                 </span>
+                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${tierStyles[creator.performanceTier]}`}>
+                  {creator.performanceTier}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        {/* Activity preview */}
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Recent activity</span>
+            <button type="button" onClick={() => setActiveSection("activity")} className="text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200">All →</button>
+          </div>
+          <ol className="space-y-3">
+            {activityTimeline.slice(0, 4).map((item) => (
+              <li key={item.id} className="border-l-2 border-stone-200 pl-3 dark:border-zinc-700">
+                <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100 line-clamp-1">{item.title}</p>
+                <p className="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-500">{new Date(item.occurredAt).toLocaleDateString()}</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400 line-clamp-2">{item.description}</p>
+              </li>
+            ))}
+          </ol>
+        </Card>
+      </div>
+    </div>
+  );
+
+  const simulationSection = (() => {
+    const expectedDelta = futureSimulation.projectedCompositeScore - futureSimulation.baselineCompositeScore;
+    const conservativeDelta = futureSimulation.compositeBand.conservative - futureSimulation.baselineCompositeScore;
+    const optimisticDelta = futureSimulation.compositeBand.optimistic - futureSimulation.baselineCompositeScore;
+    const maxAbsContribution = Math.max(1, ...futureSimulation.contributions.map((c) => Math.abs(c.compositePoints)));
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+        {/* Left: score hero + framework projections + KPI breakdown */}
+        <div className="space-y-4">
+          <Card>
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Score projection</p>
+                <div className="mt-2 flex items-end gap-3">
+                  <p className="text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    {futureSimulation.baselineCompositeScore}
+                    <span className="mx-2 text-2xl font-normal text-zinc-400">→</span>
+                    {futureSimulation.projectedCompositeScore}
+                  </p>
+                  <span className="mb-1 rounded-full bg-emerald-50 px-2.5 py-1 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800">
+                    {formatSignedPoints(expectedDelta)}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Range {futureSimulation.compositeBand.conservative}–{futureSimulation.compositeBand.optimistic} · {formatSignedPoints(conservativeDelta)} to {formatSignedPoints(optimisticDelta)}
+                </p>
               </div>
-              <p className="mt-3 text-sm leading-6 text-zinc-500 dark:text-zinc-400">{futureSimulation.narrative}</p>
-            </div>
-            {futureSimulation.metricProjections.length ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {futureSimulation.metricProjections.map((metric) => (
-                  <div key={metric.key} className="rounded-xl border border-stone-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">{metric.label}</p>
-                    <p className="mt-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {formatSimulationMetricValue(metric.key, metric.baseline)} → {formatSimulationMetricValue(metric.key, metric.projected)}
-                    </p>
-                    <p className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
-                      {formatSignedPercent(metric.deltaPercent)}
-                    </p>
-                  </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {SIMULATION_HORIZONS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSimulationHorizon(value)}
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${
+                      simulationHorizon === value
+                        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                        : "bg-stone-100 text-zinc-600 ring-1 ring-stone-200 hover:bg-stone-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {value}d
+                  </button>
                 ))}
               </div>
-            ) : (
-              <p className="mt-4 rounded-xl bg-stone-50 p-4 text-sm text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
-                Select at least one recommendation with available campaign metrics to see projected performance deltas.
-              </p>
-            )}
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              {futureSimulation.projectedFrameworkScores.map((framework) => (
-                <div key={framework.objective} className="rounded-xl border border-stone-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">
-                    {titleCase(framework.objective)} score
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                    {framework.baseline} → {framework.projected}
-                  </p>
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    Current → projected
-                  </p>
-                </div>
-              ))}
+            </div>
+            <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-300">{futureSimulation.narrative}</p>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {futureSimulation.frameworkProjections.map((projection) => {
+                const delta = projection.projectedCampaignScore - projection.baselineCampaignScore;
+                return (
+                  <div key={projection.objective} className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">{titleCase(projection.objective)}</p>
+                    <p className="mt-2 text-xl font-bold text-zinc-900 dark:text-zinc-100">
+                      {projection.baselineCampaignScore}<span className="mx-1 text-sm font-normal text-zinc-400">→</span>{projection.projectedCampaignScore}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{formatSignedPoints(delta)} · {projection.band.conservative}–{projection.band.optimistic}</p>
+                  </div>
+                );
+              })}
             </div>
           </Card>
 
           <Card>
-            <SectionHeader
-              eyebrow="How this was graded"
-              title="What the scores mean"
-              hint="The dashboard grades the campaign against three goals, then combines those goal scores based on what matters most for this campaign."
-            />
-            <div className="mb-5 rounded-xl border border-stone-200 bg-stone-50/60 p-5 text-sm leading-6 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-300">
-              <p>
-                The percentages below are the goal mix. They explain how much each goal contributes to the overall campaign score.
-              </p>
-              <p className="mt-2 text-zinc-500 dark:text-zinc-400">{report.objectiveBlend.rationale}</p>
-            </div>
+            <SectionHeading label="KPI frameworks" sub="Metrics and weights per objective" />
             <div className="grid gap-4 sm:grid-cols-3">
-              {objectiveOrder.map((objective) => (
-                <div key={objective} className="rounded-xl border border-stone-200 bg-stone-50/60 p-5 dark:border-zinc-800 dark:bg-zinc-950/40">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
-                    {titleCase(objective)} weight
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                    {report.objectiveBlend.weights[objective]}%
-                  </p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 grid gap-4 lg:grid-cols-3">
               {report.frameworkEvaluations.map((framework) => (
                 <FrameworkMetricList key={framework.objective} framework={framework} />
               ))}
@@ -702,304 +582,539 @@ export function CampaignDashboard({
           </Card>
         </div>
 
-        {/* ── Right column ── */}
-        <div className="space-y-6">
-          <Card>
-            <div id="recommended-actions" />
-            <SectionHeader eyebrow="What should I do?" title="Recommended actions" />
-            {sortedRecommendations.length ? (
-              <ul className="max-h-[40rem] space-y-4 overflow-y-auto pr-2">
-                {sortedRecommendations.map((rec, index) => {
-                  const simulationId = recommendationSimulationId(rec, index);
-                  const checked = selectedSimulationRecommendationIds.has(simulationId);
-                  return (
-                    <li
-                      key={simulationId}
-                      className="rounded-xl border border-stone-200 bg-stone-50/60 p-5 dark:border-zinc-800 dark:bg-zinc-950/40"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex flex-wrap gap-2">
-                          <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white dark:bg-zinc-100 dark:text-zinc-900">
-                            {rec.priority}
-                          </span>
-                          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-500 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700">
-                            {titleCase(rec.category)}
-                          </span>
-                        </div>
-                        <label className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleRecommendationSimulation(simulationId)}
-                            className="h-4 w-4 rounded border-stone-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
-                          />
-                          Simulate
-                        </label>
-                      </div>
-                      <p className="mt-3 text-sm font-medium leading-6 text-zinc-900 dark:text-zinc-100">{rec.action}</p>
-                      <p className="mt-1.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-                        {rec.rationale} Expected impact: {rec.expectedImpact}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="rounded-xl bg-stone-50 p-5 text-sm text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
-                No actions right now.
-              </p>
-            )}
-          </Card>
-
-          <Card>
-            <SectionHeader eyebrow="What has the agent done?" title="Agent activity" />
-            <ol className="max-h-[28rem] space-y-5 overflow-y-auto pr-2">
-              {activityTimeline.map((item) => (
-                <li key={item.id} className="border-l-2 border-stone-200 pl-4 dark:border-zinc-800">
-                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{item.title}</p>
-                  <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
-                    {new Date(item.occurredAt).toLocaleString()}
-                  </p>
-                  <p className="mt-1.5 text-sm leading-6 text-zinc-500 dark:text-zinc-400">{item.description}</p>
-                </li>
+        {/* Right: contribution waterfall */}
+        <Card className="flex flex-col">
+          <SectionHeading label="Contribution waterfall" sub={`${futureSimulation.contributions.length} actions · ${formatSignedPoints(expectedDelta)} total`} />
+          {futureSimulation.contributions.length ? (
+            <ul className="flex-1 space-y-3 overflow-y-auto">
+              {futureSimulation.contributions.map((contribution) => (
+                <ContributionRow key={contribution.simulationId} contribution={contribution} maxAbsContribution={maxAbsContribution} />
               ))}
-            </ol>
-          </Card>
-        </div>
+            </ul>
+          ) : (
+            <p className="rounded-xl bg-stone-50 p-4 text-sm text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
+              Toggle actions to see projections here.
+            </p>
+          )}
+        </Card>
       </div>
+    );
+  })();
 
-      {/* Drafts — full width */}
+  const actionsSection = (
+    <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
       <Card>
-        <SectionHeader
-          eyebrow="Creator outreach"
-          title="Draft messages by performance tier"
-          hint="Select the drafts you want to include in each batch, edit as needed, then send the tier through Reacher."
-        />
-        {report.creatorMessageDrafts.length ? (
-          <div className="space-y-4">
-            {draftTierOrder.map((tier) => {
-              const tierDrafts = draftsByTier[tier];
-              const selectedCount = tierDrafts.filter((draft) => selectedDraftIds.has(draft.id)).length;
-              const feedback = batchFeedback[tier];
+        <SectionHeading label="Recommended actions" sub={`${sortedRecommendations.length} actions · toggle to include in simulation`} />
+        {sortedRecommendations.length ? (
+          <ul className="space-y-3">
+            {sortedRecommendations.map((rec, index) => {
+              const simulationId = recommendationSimulationId(rec, index);
+              const checked = selectedSimulationRecommendationIds.has(simulationId);
+              const priorityColors = {
+                high: "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300",
+                medium: "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
+                low: "bg-stone-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+              };
               return (
-                <details
-                  key={tier}
-                  open={tier === "high"}
-                  className="group rounded-xl border border-stone-200 bg-stone-50/60 p-4 open:bg-white dark:border-zinc-800 dark:bg-zinc-950/40 dark:open:bg-zinc-900"
+                <li
+                  key={simulationId}
+                  className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 transition hover:border-stone-300 dark:border-zinc-800 dark:bg-zinc-950/40 dark:hover:border-zinc-700"
                 >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${tierStyles[tier]}`}>
-                        {tierLabel(tier)}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${priorityColors[rec.priority]}`}>
+                        {rec.priority}
                       </span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {tierDrafts.length} draft{tierDrafts.length === 1 ? "" : "s"} · {selectedCount} selected
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-500 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">
+                        {titleCase(rec.category)}
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        void sendBatch(tier);
-                      }}
-                      disabled={sendingTier === tier || !tierDrafts.length}
-                      className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-                    >
-                      {sendingTier === tier ? "Sending…" : `Send batch (${selectedCount})`}
-                    </button>
-                  </summary>
-                  {feedback ? (
-                    <p className={`mt-3 rounded-lg px-3 py-2 text-xs ${feedback.ok ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" : "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-200"}`}>
-                      {feedback.message}
-                    </p>
-                  ) : null}
-                  {tierDrafts.length ? (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 max-h-[32rem] overflow-y-auto pr-2">
-                      {tierDrafts.map((draft) => {
-                        const checked = selectedDraftIds.has(draft.id);
-                        return (
-                          <article
-                            key={draft.id}
-                            className="rounded-lg border border-stone-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-                          >
-                            <div className="mb-3 flex items-start justify-between gap-3">
-                              <label className="flex items-start gap-2.5">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleDraftSelected(draft.id)}
-                                  className="mt-1 h-4 w-4 rounded border-stone-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
-                                />
-                                <span>
-                                  <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                                    {draft.creatorName ?? "Broadcast"}
-                                  </span>
-                                  {draft.creatorHandle ? (
-                                    <span className="block text-[11px] text-zinc-400 dark:text-zinc-500">{draft.creatorHandle}</span>
-                                  ) : null}
-                                </span>
-                              </label>
-                              <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-                                {titleCase(draft.suggestionType)}
-                              </span>
-                            </div>
-                            <textarea
-                              value={draftBodies[draft.id] ?? draft.body}
-                              onChange={(event) => setDraftBodies((prev) => updatedDraftBodies(prev, draft.id, event.target.value))}
-                              className="min-h-28 w-full resize-y rounded-lg border border-stone-200 bg-white p-3 text-sm leading-6 text-zinc-700 outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:focus:border-zinc-600 dark:focus:ring-zinc-800"
-                            />
-                            <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{draft.rationale}</p>
-                            <div className="mt-3 flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => saveDraft(draft.id)}
-                                className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                              >
-                                {savedDraftId === draft.id ? "Saved" : "Save"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void copyDraft(draft)}
-                                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-                              >
-                                {copiedDraftId === draft.id ? "Copied" : "Copy"}
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">No drafts in this tier.</p>
-                  )}
-                </details>
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleRecommendationSimulation(simulationId)}
+                        className="h-3.5 w-3.5 rounded border-stone-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+                      />
+                      Simulate
+                    </label>
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">{rec.action}</p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{rec.rationale}</p>
+                  <p className="mt-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">Impact: {rec.expectedImpact}</p>
+                </li>
               );
             })}
-          </div>
+          </ul>
         ) : (
-          <p className="rounded-xl bg-stone-50 p-5 text-sm text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
-            No creator drafts yet.
-          </p>
+          <p className="rounded-xl bg-stone-50 p-4 text-sm text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">No actions right now.</p>
         )}
       </Card>
+
+      <div className="space-y-5">
+        <Card>
+          <SectionHeading label="Goal weights" />
+          <div className="space-y-3">
+            {objectiveOrder.map((objective) => (
+              <div key={objective} className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50/70 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950/40">
+                <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{titleCase(objective)}</p>
+                <p className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{report.objectiveBlend.weights[objective]}%</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{report.objectiveBlend.rationale}</p>
+        </Card>
+        <Card>
+          <div className="flex items-center justify-between gap-3">
+            <SectionHeading label="Score projection" />
+            <button
+              type="button"
+              onClick={() => setActiveSection("simulation")}
+              className="mb-4 shrink-0 text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200"
+            >
+              Full view
+            </button>
+          </div>
+          <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">Score · {simulationHorizon}d horizon</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+              {futureSimulation.baselineCompositeScore}
+              <span className="mx-1.5 text-lg font-normal text-zinc-400">→</span>
+              {futureSimulation.projectedCompositeScore}
+              <span className="ml-2 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                {formatSignedPoints(futureSimulation.projectedCompositeScore - futureSimulation.baselineCompositeScore)}
+              </span>
+            </p>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 
-
-
-
-
-
-  const fullReport = (
-    <div className="space-y-8">
+  const activitySection = (
+    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
       <Card>
-        <SectionHeader eyebrow="Executive report" title="Summary and KPI framework" />
-        <p className="text-sm leading-7 text-zinc-600 dark:text-zinc-300">{report.executiveSummary}</p>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {report.kpiFramework.metrics.map((metric) => (
-            <div
-              key={metric.name}
-              className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-950/40"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{titleCase(metric.name)}</p>
-                <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{metric.weight}%</span>
+        <SectionHeading label="Agent activity" sub={`${activityTimeline.length} events`} />
+        <ol className="space-y-0">
+          {activityTimeline.map((item, i) => (
+            <li key={item.id} className="relative flex gap-4 pb-5">
+              <div className="flex flex-col items-center">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-stone-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+                </span>
+                {i < activityTimeline.length - 1 && (
+                  <div className="mt-1 w-px flex-1 bg-stone-200 dark:bg-zinc-800" />
+                )}
               </div>
-              <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{metric.reason}</p>
+              <div className="min-w-0 pt-0.5">
+                <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{item.title}</p>
+                <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{new Date(item.occurredAt).toLocaleString()}</p>
+                <p className="mt-1 text-xs leading-5 text-zinc-600 dark:text-zinc-400">{item.description}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </Card>
+
+      <div className="space-y-4">
+        {/* Outreach summary */}
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Outreach drafts</span>
+            <button type="button" onClick={() => setActiveSection("outreach")} className="text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200">Open →</button>
+          </div>
+          {draftTierOrder.map((tier) => {
+            const n = draftsByTier[tier].length;
+            return (
+              <div key={tier} className="flex items-center justify-between border-b border-stone-100 py-2.5 last:border-0 dark:border-zinc-800">
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${tierStyles[tier]}`}>{tierLabel(tier)}</span>
+                <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300">{n}</span>
+              </div>
+            );
+          })}
+        </Card>
+
+        {/* Metric summary */}
+        {campaignSummaryCards.length > 0 && (
+          <Card>
+            <div className="mb-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Key metrics</span>
+            </div>
+            <div className="space-y-2">
+              {campaignSummaryCards.slice(0, 5).map((metric) => (
+                <div key={metric.label} className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{metric.label}</span>
+                  <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{metric.value}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+
+  const outreachSection = (
+    <Card>
+      <SectionHeading
+        label="Draft messages by tier"
+        sub="Select drafts, edit as needed, then send via Reacher."
+      />
+      {report.creatorMessageDrafts.length ? (
+        <div className="space-y-3">
+          {draftTierOrder.map((tier) => {
+            const tierDrafts = draftsByTier[tier];
+            const selectedCount = tierDrafts.filter((d) => selectedDraftIds.has(d.id)).length;
+            const feedback = batchFeedback[tier];
+            return (
+              <details
+                key={tier}
+                open={tier === "high"}
+                className="group rounded-xl border border-stone-200 bg-stone-50/70 open:bg-white dark:border-zinc-800 dark:bg-zinc-950/40 dark:open:bg-zinc-900"
+              >
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${tierStyles[tier]}`}>
+                      {tierLabel(tier)}
+                    </span>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {tierDrafts.length} draft{tierDrafts.length !== 1 && "s"}
+                      {selectedCount > 0 && ` · ${selectedCount} selected`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); void sendBatch(tier); }}
+                    disabled={sendingTier === tier || !tierDrafts.length}
+                    className="shrink-0 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
+                  >
+                    {sendingTier === tier ? "Sending…" : `Send (${selectedCount})`}
+                  </button>
+                </summary>
+                <div className="px-4 pb-4">
+                  {feedback && (
+                    <p className={`mb-3 rounded-lg px-3 py-2 text-xs ${feedback.ok ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" : "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-200"}`}>
+                      {feedback.message}
+                    </p>
+                  )}
+                  {tierDrafts.length ? (
+                    <div className="grid max-h-[36rem] min-w-0 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
+                      {tierDrafts.map((draft) => (
+                        <article key={draft.id} className="min-w-0 rounded-lg border border-stone-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                          <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-2">
+                            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedDraftIds.has(draft.id)}
+                                onChange={() => toggleDraftSelected(draft.id)}
+                                className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-stone-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+                              />
+                              <span className="min-w-0">
+                                <span className="block break-words text-sm font-semibold text-zinc-900 dark:text-zinc-100">{draft.creatorName ?? "Broadcast"}</span>
+                                {draft.creatorHandle && <span className="block break-all text-[11px] text-zinc-400 dark:text-zinc-500">{draft.creatorHandle}</span>}
+                              </span>
+                            </label>
+                            <span className="max-w-full rounded-full bg-stone-100 px-2 py-0.5 text-right text-[10px] font-medium uppercase leading-tight tracking-wide text-zinc-500 whitespace-normal break-words dark:bg-zinc-800 dark:text-zinc-400">
+                              {titleCase(draft.suggestionType)}
+                            </span>
+                          </div>
+                          <textarea
+                            value={draftBodies[draft.id] ?? draft.body}
+                            onChange={(e) => setDraftBodies((prev) => updatedDraftBodies(prev, draft.id, e.target.value))}
+                            className="min-h-28 min-w-0 w-full max-w-full resize-y rounded-lg border border-stone-200 bg-stone-50 p-3 text-sm leading-6 text-zinc-700 outline-none transition focus:border-zinc-400 focus:bg-white focus:ring-2 focus:ring-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:focus:border-zinc-600 dark:focus:ring-zinc-800"
+                          />
+                          <p className="mt-2 break-words text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{draft.rationale}</p>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => saveDraft(draft.id)}
+                              className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                              {savedDraftId === draft.id ? "Saved" : "Save"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void copyDraft(draft)}
+                              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+                            >
+                              {copiedDraftId === draft.id ? "Copied!" : "Copy"}
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">No drafts in this tier.</p>
+                  )}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="rounded-xl bg-stone-50 p-4 text-sm text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">No creator drafts yet.</p>
+      )}
+    </Card>
+  );
+
+  // ── Report sections ──────────────────────────────────────────────────────────
+
+  const kpisSection = (
+    <div className="space-y-4">
+      <Card>
+        <SectionHeading
+          label="KPI framework"
+          sub={`${report.kpiFramework.metrics.length} metrics · ${report.kpiFramework.confidence} confidence`}
+        />
+        <p className="mb-4 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{report.kpiFramework.summary}</p>
+        <div className="space-y-2">
+          {report.kpiFramework.metrics.map((metric) => (
+            <div key={metric.name} className="rounded-lg border border-stone-200 bg-stone-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{titleCase(metric.name)}</p>
+                <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">{metric.weight}%</span>
+              </div>
+              <p className="mt-1 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{metric.reason}</p>
             </div>
           ))}
         </div>
       </Card>
+      <Card>
+        <SectionHeading label="Framework scores" sub="Per-objective KPI performance" />
+        <div className="grid gap-3 sm:grid-cols-3">
+          {report.frameworkEvaluations.map((fw) => (
+            <div key={fw.objective} className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">{titleCase(fw.objective)}</p>
+              <p className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{fw.campaignScore}</p>
+              <p className="mt-0.5 text-[10px] capitalize text-zinc-400 dark:text-zinc-500">{fw.confidence} conf.</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionHeader eyebrow="Creator ranking" title="Weighted performance labels" />
-          <ul className="max-h-[28rem] space-y-3 overflow-y-auto pr-2">
-            {report.creatorEvaluations.map((creator) => (
-              <li
-                key={creator.creatorName}
-                className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-950/40"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-                  <span>#{creator.rank} {creator.creatorName}</span>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${tierStyles[creator.performanceTier]}`}>
-                    {tierLabel(creator.performanceTier)}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{creator.tierRationale}</p>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Driver: {creator.primaryDriver} · Drag: {creator.primaryDrag}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </Card>
-        <Card>
-          <SectionHeader eyebrow="Attribution" title="Why results happened" />
-          <ul className="max-h-[28rem] space-y-4 overflow-y-auto pr-2">
-            {report.attributionInsights.map((insight) => (
-              <li key={insight.claim} className="text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">{insight.claim}</span>
-                <br />
-                {insight.businessImplication}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      </section>
+  const reportSummarySection = (
+    <Card>
+      <SectionHeading label="Executive summary" />
+      <p className="text-sm leading-7 text-zinc-600 dark:text-zinc-300">{report.executiveSummary}</p>
+    </Card>
+  );
 
-      <details className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <summary className="cursor-pointer text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          Raw structured payload
-        </summary>
-        <pre className="mt-4 max-h-72 overflow-auto rounded-lg bg-stone-50 p-4 text-xs leading-relaxed text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
+  const reportCreatorsSection = (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {report.creatorEvaluations.map((creator) => (
+        <Card key={creator.creatorName}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              <span className="mr-2 text-zinc-400 dark:text-zinc-500">#{creator.rank}</span>
+              {creator.creatorName}
+            </span>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${tierStyles[creator.performanceTier]}`}>
+              {tierLabel(creator.performanceTier)}
+            </span>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{creator.tierRationale}</p>
+          <div className="mt-2 flex gap-4 text-[11px] text-zinc-500 dark:text-zinc-400">
+            <span>Driver: <span className="font-medium text-zinc-700 dark:text-zinc-300">{creator.primaryDriver}</span></span>
+            <span>Drag: <span className="font-medium text-zinc-700 dark:text-zinc-300">{creator.primaryDrag}</span></span>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+
+  const reportAttributionSection = (
+    <div className="space-y-5">
+      <Card>
+        <SectionHeading label="Attribution insights" sub="Why results happened" />
+        <ul className="space-y-4">
+          {report.attributionInsights.map((insight) => (
+            <li key={insight.claim} className="border-b border-stone-200 pb-4 last:border-0 last:pb-0 dark:border-zinc-800">
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{insight.claim}</p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{insight.businessImplication}</p>
+              <span className="mt-1.5 inline-block text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                {insight.confidence} confidence
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <details className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <summary className="cursor-pointer text-sm font-medium text-zinc-600 dark:text-zinc-400">Raw payload</summary>
+        <pre className="mt-4 max-h-72 overflow-auto rounded-lg bg-stone-50 p-4 text-[11px] leading-relaxed text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
           {JSON.stringify(report, null, 2)}
         </pre>
       </details>
     </div>
   );
 
+  // ── Nav config ───────────────────────────────────────────────────────────────
+
+  const dashboardNav: { id: DashboardSection; label: string; icon: string }[] = [
+    { id: "overview",    label: "Overview",    icon: ICONS.overview },
+    { id: "simulation",  label: "Simulate",    icon: ICONS.simulation },
+    { id: "actions",     label: "Actions",     icon: ICONS.actions },
+    { id: "activity",    label: "Activity",    icon: ICONS.activity },
+    { id: "outreach",    label: "Outreach",    icon: ICONS.outreach },
+  ];
+
+  const reportNav: { id: ReportSection; label: string; icon: string }[] = [
+    { id: "kpis",        label: "KPIs",        icon: ICONS.summary },
+    { id: "summary",     label: "Summary",     icon: ICONS.attribution },
+    { id: "creators",    label: "Creators",    icon: ICONS.creators },
+    { id: "attribution", label: "Attribution", icon: ICONS.attribution },
+  ];
+
+  const allNav = [...dashboardNav, ...reportNav];
+
+  function renderContent() {
+    switch (activeSection) {
+      case "overview":     return overviewSection;
+      case "simulation":   return simulationSection;
+      case "actions":      return actionsSection;
+      case "activity":     return activitySection;
+      case "outreach":     return outreachSection;
+      case "kpis":         return kpisSection;
+      case "summary":      return reportSummarySection;
+      case "creators":     return reportCreatorsSection;
+      case "attribution":  return reportAttributionSection;
+    }
+  }
+
+  const sidebarW = sidebarCollapsed ? "w-14" : "w-52";
+  const mainPl = sidebarCollapsed ? "pl-14" : "pl-52";
+
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-zinc-950">
-      {/* ── Top bar ── */}
-      <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/85">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 sm:px-10">
-          <CampaignLogo size="md" className="rounded-lg" />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setView(nextDashboardView(view))}
-              className="rounded-lg border border-stone-200 bg-white px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:bg-stone-50 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              {view === "dashboard" ? "View full report" : "Back to dashboard"}
-            </button>
-            <button
-              type="button"
-              onClick={onStartNew}
-              className="rounded-lg bg-zinc-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              New campaign
-            </button>
+    <div className="flex min-h-screen bg-stone-50 dark:bg-zinc-950">
+      {/* ── Sidebar ── */}
+      <aside className={`fixed inset-y-0 left-0 z-20 flex flex-col border-r border-stone-200 bg-white transition-all duration-200 dark:border-zinc-800 dark:bg-zinc-900 ${sidebarW}`}>
+        {/* Logo + collapse */}
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-stone-200 px-3 dark:border-zinc-800">
+          {!sidebarCollapsed && <CampaignLogo size="xs" className="rounded-lg" />}
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-stone-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 ${sidebarCollapsed ? "mx-auto" : ""}`}
+          >
+            <Icon path={sidebarCollapsed ? ICONS.chevRight : ICONS.chevLeft} className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Campaign info */}
+        {!sidebarCollapsed && (
+          <div className="shrink-0 border-b border-stone-200 px-4 py-3 dark:border-zinc-800">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Campaign</p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" title={campaign.name || "Campaign"}>
+              {campaign.name || "Campaign"}
+            </p>
+            <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{campaign.brand}</p>
           </div>
-        </div>
-      </header>
+        )}
 
-      {/* ── Page content ── */}
-      <main className="mx-auto max-w-7xl px-6 py-12 sm:px-10">
-        <div className="mb-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
-            Post-onboarding dashboard
-          </p>
-          <h2 className="mt-2 text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 sm:text-4xl">
-            {campaign.name || "Campaign"}
-          </h2>
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            {campaign.brand} · {titleCase(report.objective)} objective · Generated {new Date(report.generatedAt).toLocaleString()}
-          </p>
-        </div>
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto p-2">
+          {/* Dashboard sections */}
+          <div className={`pt-2 ${!sidebarCollapsed ? "px-2" : ""}`}>
+            {!sidebarCollapsed && (
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Dashboard</p>
+            )}
+            {dashboardNav.map((item) => {
+              const active = activeSection === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={sidebarCollapsed ? item.label : undefined}
+                  onClick={() => setActiveSection(item.id)}
+                  className={`mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-xs transition ${
+                    active
+                      ? "bg-zinc-900 font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "text-zinc-500 hover:bg-stone-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                  } ${sidebarCollapsed ? "justify-center" : ""}`}
+                >
+                  <Icon path={item.icon} />
+                  {!sidebarCollapsed && item.label}
+                </button>
+              );
+            })}
+          </div>
 
-        {view === "report" ? fullReport : dashboardView}
-      </main>
+          {/* Divider */}
+          <div className="mx-2 my-3 border-t border-stone-200 dark:border-zinc-800" />
+
+          {/* Report sections */}
+          <div className={`${!sidebarCollapsed ? "px-2" : ""}`}>
+            {!sidebarCollapsed && (
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Report</p>
+            )}
+            {reportNav.map((item) => {
+              const active = activeSection === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={sidebarCollapsed ? item.label : undefined}
+                  onClick={() => setActiveSection(item.id)}
+                  className={`mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-xs transition ${
+                    active
+                      ? "bg-zinc-900 font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "text-zinc-500 hover:bg-stone-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                  } ${sidebarCollapsed ? "justify-center" : ""}`}
+                >
+                  <Icon path={item.icon} />
+                  {!sidebarCollapsed && item.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* New campaign */}
+        <div className="shrink-0 border-t border-stone-200 p-2 dark:border-zinc-800">
+          <button
+            type="button"
+            title={sidebarCollapsed ? "New campaign" : undefined}
+            onClick={onStartNew}
+            className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-xs text-zinc-500 transition hover:bg-stone-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${sidebarCollapsed ? "justify-center" : ""}`}
+          >
+            <Icon path={ICONS.new} />
+            {!sidebarCollapsed && "New campaign"}
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main ── */}
+      <div className={`flex min-h-screen w-full flex-col transition-all duration-200 ${mainPl}`}>
+        {/* Top bar */}
+        <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/90">
+          <div className="mx-auto flex max-w-6xl items-center justify-between px-8 py-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
+                {allNav.find((n) => n.id === activeSection)?.label}
+              </p>
+              <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                {campaign.name || "Campaign"}
+              </h1>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${health.bg}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${health.dot}`} />
+                <span className={`text-[11px] font-medium ${health.accent}`}>{health.label}</span>
+              </div>
+              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                {new Date(report.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </div>
+          </div>
+        </header>
+
+        {/* Content */}
+        <main className="mx-auto w-full max-w-6xl px-8 py-8">
+          {renderContent()}
+        </main>
+      </div>
     </div>
   );
 }

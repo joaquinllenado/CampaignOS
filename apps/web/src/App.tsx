@@ -60,7 +60,7 @@ export function App() {
       {/* ── Left branding panel (onboarding only) ── */}
       <aside className="hidden lg:flex w-[380px] xl:w-[420px] shrink-0 flex-col p-10 border-r border-stone-200 bg-stone-50 dark:bg-zinc-900 dark:border-zinc-800">
         <div className="flex flex-col h-full">
-          <CampaignLogo size="lg" className="rounded-lg" />
+          <CampaignLogo variant="wordmark" size="lg" className="rounded-lg" />
 
           <div className="flex-1 flex flex-col justify-center">
             <p className="text-[11px] font-semibold text-zinc-400 tracking-widest uppercase mb-3 dark:text-zinc-500">
@@ -91,7 +91,7 @@ export function App() {
       {/* ── Right form panel ── */}
       <main className="flex-1 flex flex-col min-h-screen overflow-y-auto bg-white dark:bg-zinc-950">
         <header className="lg:hidden flex items-center px-6 py-4 border-b border-stone-200 dark:border-zinc-800">
-          <CampaignLogo size="sm" className="rounded-md" />
+          <CampaignLogo variant="wordmark" size="sm" className="rounded-md" />
         </header>
 
         <div className="flex-1 flex items-start justify-center py-12 px-6 sm:px-10">

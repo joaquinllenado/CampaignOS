@@ -23,6 +23,12 @@ type Props = {
   fileInputLabel?: string;
   /** When false, uploads still update `niaSourceIds` but the green “Indexed & linked” block is omitted (use when another dropzone shows the combined list). */
   showIndexedSourcesList?: boolean;
+  /** Optional CTA (e.g. attach bundled demo PDFs) shown under the description */
+  demoAttach?: {
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+  };
 };
 
 const dropOuterClass =
@@ -36,7 +42,8 @@ export function BrandContextDropzone(props: Props) {
     title = "Supporting documents",
     description = "Drop PDFs, spreadsheets, or text files describing past campaigns, outcomes, or internal metrics. We index them into Nia so the agent can search this context alongside your brief.",
     fileInputLabel = "Upload brand context files",
-    showIndexedSourcesList = true
+    showIndexedSourcesList = true,
+    demoAttach
   } = props;
   const inputId = useId();
   const [queue, setQueue] = useState<File[]>([]);
@@ -166,6 +173,16 @@ export function BrandContextDropzone(props: Props) {
       <div>
         <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{title}</h3>
         <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{description}</p>
+        {demoAttach ? (
+          <button
+            type="button"
+            disabled={demoAttach.disabled || busy}
+            onClick={demoAttach.onClick}
+            className="mt-2.5 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition enabled:hover:bg-stone-50 enabled:hover:border-zinc-300 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:enabled:hover:bg-zinc-700"
+          >
+            {demoAttach.label}
+          </button>
+        ) : null}
       </div>
 
       <label htmlFor={inputId} className="sr-only">
