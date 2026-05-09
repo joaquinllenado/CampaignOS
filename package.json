@@ -1,5 +1,5 @@
 {
-  "name": "nozo-hack",
+  "name": "campaign-os",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -7,12 +7,14 @@
   ],
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"bun run dev:api\" \"bun run dev:web\"",
+    "demo": "VITE_ENABLE_DEMO=1 concurrently -n api,web -c cyan,magenta \"bun run dev:api\" \"bun run dev:web\"",
     "dev:api": "bun run --cwd apps/api dev",
     "dev:web": "bun run --cwd apps/web dev",
     "build": "bun run build:api && bun run build:web",
     "build:api": "bun run --cwd apps/api build",
     "build:web": "bun run --cwd apps/web build",
     "typecheck": "bun run --cwd apps/api typecheck && bun run --cwd apps/web typecheck",
+    "test:web": "bun run --cwd apps/web test",
     "test:nia:ingest": "bun run scripts/nia-ingest-test-documents.ts",
     "test:nia:ingest:poll": "bun run scripts/nia-ingest-test-documents.ts --poll",
     "test:nia:query": "bun run scripts/nia-query-test-sources.ts",

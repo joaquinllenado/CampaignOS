@@ -1,0 +1,568 @@
+Sales Intelligence Framework (V1 — High Signal / Low Noise)
+Objective
+The Sales framework evaluates:
+how effectively a campaign generated commercial outcomes
+
+
+whether audience attention translated into purchase behavior
+
+
+whether creators drove efficient conversion
+
+
+whether the campaign generated scalable revenue impact
+
+
+whether sales performance was sustainable and efficient
+
+
+The framework is designed to:
+move beyond vanity engagement metrics
+
+
+separate visibility from conversion effectiveness
+
+
+prioritize efficiency and purchase intent
+
+
+provide strategic interpretation instead of analytics overload
+
+
+This framework should feel like:
+commercial intelligence,
+not:
+sales reporting.
+
+Core Principles
+1. Sales ≠ Awareness
+Sales campaigns are evaluated on:
+conversion efficiency
+
+
+purchase behavior
+
+
+GMV contribution
+
+
+creator sales effectiveness
+
+
+commercial scalability
+
+
+NOT:
+raw views
+
+
+impressions
+
+
+passive engagement
+
+
+A campaign can have:
+high visibility
+
+
+strong engagement
+
+
+weak conversion
+
+
+and still underperform on sales objectives.
+
+2. Revenue Efficiency Matters More Than Raw GMV
+The framework prioritizes:
+efficient conversion
+
+
+scalable revenue generation
+
+
+creator sales quality
+
+
+purchase intent alignment
+
+
+over:
+inflated traffic
+
+
+passive engagement
+
+
+isolated revenue spikes
+
+
+
+3. Benchmarking Is Contextual
+Campaigns should be compared against:
+similar sales-focused campaigns
+
+
+similar creator tiers
+
+
+similar product categories
+
+
+similar campaign structures
+
+
+the brand’s historical sales performance
+
+
+NOT against:
+universal sales benchmarks
+
+
+
+4. The AI Interprets Commercial Behavior
+The system should explain:
+what drove purchases
+
+
+why audiences converted
+
+
+which creators influenced sales
+
+
+where conversion friction existed
+
+
+what limited revenue efficiency
+
+
+The user should NOT need to interpret:
+GMV formulas
+
+
+benchmark calculations
+
+
+conversion mechanics
+
+
+weighted scoring logic
+
+
+Those remain internal.
+
+Internal Sales Evaluation Layers
+These layers power the scoring model internally but should not be heavily exposed in the user-facing output.
+Layer
+Purpose
+Revenue Efficiency
+Commercial output quality
+Conversion Strength
+Purchase effectiveness
+Creator Sales Efficiency
+Creator-driven revenue impact
+Sales Consistency
+Stability of commercial performance
+Scalable Growth Potential
+Sustainable revenue expansion
+
+
+Internal Variables
+Revenue Efficiency
+Measures:
+revenue generation quality
+
+
+commercial efficiency
+
+
+sales productivity
+
+
+Variables:
+gmv
+
+
+gmv_per_video
+
+
+gmv_per_creator
+
+
+gmv_per_sample
+
+
+gmv_driving_videos
+
+
+
+Conversion Strength
+Measures:
+purchase intent
+
+
+conversion effectiveness
+
+
+audience buying behavior
+
+
+Variables:
+order_count
+
+
+units_sold
+
+
+view_to_order_conversion
+
+
+conversion_efficiency
+
+
+product_conversion_rate
+
+
+
+Creator Sales Efficiency
+Measures:
+creator commercial performance
+
+
+creator purchase influence
+
+
+creator revenue scalability
+
+
+Variables:
+creator_gmv
+
+
+creator_efficiency
+
+
+creator_conversion_efficiency
+
+
+creator_fulfillment_rate
+
+
+creator_consistency
+
+
+
+Sales Consistency
+Measures:
+revenue stability
+
+
+sustained commercial momentum
+
+
+repeat conversion behavior
+
+
+Variables:
+daily_gmv
+
+
+gmv_velocity
+
+
+sales_decay
+
+
+conversion_stability
+
+
+repeat_creator_performance
+
+
+
+Scalable Growth Potential
+Measures:
+sustainable revenue expansion
+
+
+creator scalability
+
+
+campaign growth efficiency
+
+
+Variables:
+new_creators_posting
+
+
+creator_activation_rate
+
+
+sample_roi
+
+
+outreach_conversion
+
+
+product_adoption_growth
+
+
+
+Benchmark Layers
+The framework compares campaigns against multiple benchmark contexts.
+
+Platform Benchmark
+“How did this perform compared to overall sales-focused campaigns?”
+
+Tier Benchmark
+“How did this perform compared to campaigns with similar creator scale and commercial structure?”
+
+Brand Benchmark
+“How did this perform compared to the brand’s historical sales campaigns?”
+
+Cohort Benchmark (Future Layer)
+“How did this perform compared to campaigns using similar creator, product, and content strategies?”
+
+User-Facing Output Structure
+The final output should prioritize:
+strategic clarity
+
+
+commercial interpretation
+
+
+concise insights
+
+
+actionable recommendations
+
+
+NOT:
+analytics detail
+
+
+score mechanics
+
+
+benchmark jargon
+
+
+
+Final Output Structure
+Section
+Purpose
+Sales Score
+Overall evaluation
+So What?
+Business interpretation
+What Happened
+High-level commercial behavior
+Compared To Similar Campaigns
+Benchmark context
+What Worked Best
+Strongest sales drivers
+What Limited Performance
+Conversion bottlenecks
+What To Change Right Now
+Immediate recommendations
+
+
+Output Rules
+Keep Metrics Minimal
+Only include metrics if they:
+materially strengthen interpretation
+
+
+justify recommendations
+
+
+provide necessary context
+
+
+
+Avoid Technical Language
+Avoid:
+percentile terminology
+
+
+benchmark calculations
+
+
+weighted score logic
+
+
+statistical explanations
+
+
+Translate benchmark logic into:
+“strong commercial performance”
+
+
+“healthy conversion efficiency”
+
+
+“above-normal purchase behavior”
+
+
+“weak revenue scalability”
+
+
+“efficient creator conversion”
+
+
+“strong buyer intent”
+
+
+
+Campaign Data vs Benchmark Data
+Always separate:
+What happened
+from:
+What it means relative to benchmarks
+Example:
+Campaign Performance
+“The campaign generated strong purchase activity across multiple creator segments.”
+Benchmark Context
+“Conversion efficiency exceeded similar sales-focused campaigns, particularly among tutorial-driven creators.”
+
+Sample Output Template
+Sales — Strong
+So What?
+This campaign converted audience attention into purchases more effectively than similar sales-focused campaigns, particularly through creators with strong product education and audience trust.
+Revenue performance was driven by efficient creator conversion rather than broad visibility alone, suggesting strong purchase intent and healthy creator-product alignment.
+
+What Happened
+The campaign generated steady purchase activity throughout the campaign lifecycle, with tutorial and review-style creators producing the strongest commercial performance.
+Sales remained distributed across multiple creators rather than relying on a single breakout revenue driver.
+
+Compared To Similar Campaigns
+Compared to similar sales campaigns:
+conversion efficiency was stronger than expected
+
+
+creator-driven revenue impact was healthier than comparable campaigns
+
+
+purchase behavior remained more stable over time
+
+
+creator efficiency exceeded the brand’s historical sales performance
+
+
+Compared to the brand’s previous campaigns:
+creator conversion improved significantly
+
+
+GMV efficiency increased
+
+
+sales consistency remained healthier throughout the campaign lifecycle
+
+
+
+What Worked Best
+Tutorial-style creators generated the strongest purchase behavior.
+
+
+Product demonstration content produced healthy conversion efficiency.
+
+
+Mid-sized creators delivered stronger revenue efficiency than larger creators.
+
+
+Creator consistency helped sustain stable commercial performance throughout the campaign.
+
+
+
+What Limited Performance
+Several high-visibility creators generated weak purchase conversion relative to engagement.
+
+
+Revenue performance remained concentrated among a small number of creators.
+
+
+Some creator segments generated attention without strong buyer intent.
+
+
+
+What To Change Right Now
+Increase allocation toward tutorial and product-demonstration creators.
+
+
+Prioritize creators with stronger historical conversion efficiency.
+
+
+Reduce reliance on creators generating passive engagement without purchases.
+
+
+Expand creator diversity to reduce revenue concentration risk.
+
+
+Improve CTA clarity and product education in underperforming content segments.
+
+
+
+Future Extensions
+The Sales framework can later expand to include:
+add-to-cart behavior
+
+
+click-through data
+
+
+repeat purchase analysis
+
+
+customer retention
+
+
+creator audience affinity
+
+
+purchase intent modeling
+
+
+conversion funnel tracking
+
+
+product-level attribution analysis
+
+
+These additions improve:
+conversion intelligence
+
+
+purchase prediction
+
+
+creator-product fit analysis
+
+
+scalable revenue modeling
+
+
+
+Final Sales Framework Principle
+The Sales framework evaluates:
+quality of commercial performance
+
+
+creator-driven conversion efficiency
+
+
+purchase intent strength
+
+
+sustainable revenue generation
+
+
+contextual benchmark performance
+
+
+The system is designed to produce:
+explainable commercial intelligence
+rather than:
+metric-heavy sales reporting.
+

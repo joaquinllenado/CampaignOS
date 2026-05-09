@@ -36,6 +36,36 @@ const BINARY_UPLOAD_BY_EXT: Record<
 
 const MAX_TEXT_BYTES = 12 * 1024 * 1024;
 
+const DEFAULT_NIA_INGEST_TIMEOUT_MS = 180_000;
+
+function niaIngestTimeoutMs(): number {
+  const configured = Number(Bun.env.NIA_INGEST_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_NIA_INGEST_TIMEOUT_MS;
+}
+
+/**
+ * Nia's SDK uses fetch without AbortSignal; POST /sources can block until indexing finishes
+ * or stall indefinitely. Bound wall time so the API returns an error instead of hanging.
+ */
+async function withNiaIngestTimeout<T>(label: string, work: Promise<T>): Promise<T> {
+  const ms = niaIngestTimeoutMs();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        new Error(
+          `${label} timed out after ${Math.round(ms / 1000)}s (Nia API or upload stalled). Try a smaller file, check Nia status, or raise NIA_INGEST_TIMEOUT_MS.`
+        )
+      );
+    }, ms);
+  });
+  try {
+    return await Promise.race([work, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
 export type BrandFileIngestItem = {
   filename: string;
   sourceId: string;
@@ -120,7 +150,8 @@ async function ingestBinaryViaSignedUrl(
     headers: {
       "Content-Type": spec.contentType
     },
-    body
+    body,
+    signal: AbortSignal.timeout(niaIngestTimeoutMs())
   });
 
   if (!putRes.ok) {
@@ -158,9 +189,15 @@ export async function ingestBrandContextFiles(
       let source: Source;
 
       if (binarySpec) {
-        source = await ingestBinaryViaSignedUrl(sdk, file, displayName, binarySpec);
+        source = await withNiaIngestTimeout(
+          `Nia ingest (${file.name})`,
+          ingestBinaryViaSignedUrl(sdk, file, displayName, binarySpec)
+        );
       } else if (TEXT_EXTENSIONS.has(ext) || ext === "") {
-        source = await ingestTextFile(sdk, file, displayName);
+        source = await withNiaIngestTimeout(
+          `Nia ingest (${file.name})`,
+          ingestTextFile(sdk, file, displayName)
+        );
       } else {
         throw new Error(
           `Unsupported type (.${ext || "unknown"}). Use PDF, Excel/CSV, or plain text/Markdown/JSON.`

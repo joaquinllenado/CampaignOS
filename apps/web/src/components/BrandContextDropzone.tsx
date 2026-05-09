@@ -2,6 +2,15 @@ import type { Dispatch, DragEvent, SetStateAction } from "react";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { ingestNiaBrandFiles } from "../lib/api";
 
+/** Serialize Nia ingest calls so queue + busy state stay consistent when multiple dropzones add files. */
+function createIngestQueue() {
+  let chain = Promise.resolve();
+  return (run: () => Promise<void>) => {
+    chain = chain.then(run).catch(() => {});
+    return chain;
+  };
+}
+
 type Props = {
   campaignLabel?: string;
   indexedSourceIds: string[];
@@ -12,6 +21,8 @@ type Props = {
   description?: string;
   /** Accessible label for the hidden file input */
   fileInputLabel?: string;
+  /** When false, uploads still update `niaSourceIds` but the green “Indexed & linked” block is omitted (use when another dropzone shows the combined list). */
+  showIndexedSourcesList?: boolean;
 };
 
 const dropOuterClass =
@@ -24,13 +35,19 @@ export function BrandContextDropzone(props: Props) {
     onIndexedSourceIdsChange,
     title = "Supporting documents",
     description = "Drop PDFs, spreadsheets, or text files describing past campaigns, outcomes, or internal metrics. We index them into Nia so the agent can search this context alongside your brief.",
-    fileInputLabel = "Upload brand context files"
+    fileInputLabel = "Upload brand context files",
+    showIndexedSourcesList = true
   } = props;
   const inputId = useId();
   const [queue, setQueue] = useState<File[]>([]);
+  const queueRef = useRef<File[]>([]);
+  const [activeBatchKeys, setActiveBatchKeys] = useState<Set<string> | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ingestQueueRef = useRef(createIngestQueue());
+
+  const fileKey = useCallback((f: File) => `${f.name}-${f.size}`, []);
 
   const labelHint = useMemo(
     () => campaignLabel?.trim() || undefined,
@@ -39,23 +56,77 @@ export function BrandContextDropzone(props: Props) {
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const addFiles = useCallback((list: FileList | File[]) => {
-    const next = Array.from(list);
-    if (!next.length) return;
-    setQueue((prev) => {
-      const seen = new Set(prev.map((f) => `${f.name}-${f.size}`));
+  const runIngest = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+      const batchKeys = new Set(files.map(fileKey));
+      setActiveBatchKeys(batchKeys);
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await ingestNiaBrandFiles(files, labelHint);
+        const newIds = result.indexed.map((item) => item.sourceId).filter(Boolean);
+        if (newIds.length) {
+          onIndexedSourceIdsChange((prev) => [...prev, ...newIds]);
+        }
+        const indexedNames = new Set(result.indexed.map((i) => i.filename));
+        setQueue((prev) => {
+          const next = prev.filter((f) => !indexedNames.has(f.name));
+          queueRef.current = next;
+          return next;
+        });
+
+        if (result.errors.length && !newIds.length) {
+          const first = result.errors[0];
+          setError(`${first.filename}: ${first.message}`);
+        } else if (result.errors.length) {
+          const msg = result.errors.map((e) => `${e.filename}: ${e.message}`).join(" · ");
+          setError(`Some files failed: ${msg}`);
+        }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Upload failed.");
+      } finally {
+        setBusy(false);
+        setActiveBatchKeys(null);
+      }
+    },
+    [fileKey, labelHint, onIndexedSourceIdsChange]
+  );
+
+  const scheduleIngest = useCallback(
+    (files: File[]) => {
+      if (!files.length) return;
+      void ingestQueueRef.current(() => runIngest(files));
+    },
+    [runIngest]
+  );
+
+  const addFiles = useCallback(
+    (list: FileList | File[]) => {
+      const incoming = Array.from(list);
+      if (!incoming.length) return;
+
+      const prev = queueRef.current;
+      const seen = new Set(prev.map((f) => fileKey(f)));
       const merged = [...prev];
-      for (const file of next) {
-        const key = `${file.name}-${file.size}`;
+      const added: File[] = [];
+      for (const file of incoming) {
+        const key = fileKey(file);
         if (!seen.has(key)) {
           seen.add(key);
           merged.push(file);
+          added.push(file);
         }
       }
-      return merged;
-    });
-    setError(null);
-  }, []);
+      if (!added.length) return;
+
+      queueRef.current = merged;
+      setQueue(merged);
+      setError(null);
+      scheduleIngest(added);
+    },
+    [fileKey, scheduleIngest]
+  );
 
   function onDragOver(ev: DragEvent) {
     ev.preventDefault();
@@ -78,37 +149,12 @@ export function BrandContextDropzone(props: Props) {
     }
   }
 
-  async function handleUpload() {
-    if (!queue.length || busy) return;
-    setBusy(true);
-    setError(null);
-
-    try {
-      const result = await ingestNiaBrandFiles(queue, labelHint);
-      const newIds = result.indexed.map((item) => item.sourceId).filter(Boolean);
-      if (newIds.length) {
-        onIndexedSourceIdsChange((prev) => [...prev, ...newIds]);
-      }
-
-      const indexedNames = new Set(result.indexed.map((i) => i.filename));
-      setQueue((prev) => prev.filter((f) => !indexedNames.has(f.name)));
-
-      if (result.errors.length && !newIds.length) {
-        const first = result.errors[0];
-        setError(`${first.filename}: ${first.message}`);
-      } else if (result.errors.length) {
-        const msg = result.errors.map((e) => `${e.filename}: ${e.message}`).join(" · ");
-        setError(`Some files failed: ${msg}`);
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Upload failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function removeQueued(name: string, size: number) {
-    setQueue((prev) => prev.filter((f) => !(f.name === name && f.size === size)));
+    setQueue((prev) => {
+      const next = prev.filter((f) => !(f.name === name && f.size === size));
+      queueRef.current = next;
+      return next;
+    });
   }
 
   function removeIndexed(id: string) {
@@ -157,8 +203,13 @@ export function BrandContextDropzone(props: Props) {
           </button>
         </p>
         <p className="max-w-sm text-xs text-zinc-400 dark:text-zinc-500">
-          PDF, CSV/TSV, Excel, Markdown, TXT, JSON — max 25 MB per file, 20 files per batch.
+          PDF, CSV/TSV, Excel, Markdown, TXT, JSON — max 25 MB per file, 20 files per batch. Files index to Nia as soon as you add them.
         </p>
+        {busy ? (
+          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400" aria-live="polite">
+            Indexing to Nia…
+          </p>
+        ) : null}
       </div>
 
       {queue.length > 0 ? (
@@ -168,30 +219,26 @@ export function BrandContextDropzone(props: Props) {
               key={`${file.name}-${file.size}`}
               className="flex flex-wrap items-center justify-between gap-2 text-zinc-800 dark:text-zinc-200"
             >
-              <span className="truncate text-sm">{file.name}</span>
+              <span className="truncate text-sm">
+                {file.name}
+                {activeBatchKeys?.has(fileKey(file)) ? (
+                  <span className="ml-2 text-zinc-400 dark:text-zinc-500">Indexing…</span>
+                ) : null}
+              </span>
               <button
                 type="button"
-                className="shrink-0 text-xs text-zinc-400 hover:text-red-600 transition dark:text-zinc-500 dark:hover:text-red-400"
+                disabled={busy}
+                className="shrink-0 text-xs text-zinc-400 hover:text-red-600 transition enabled:dark:text-zinc-500 disabled:opacity-40 dark:hover:text-red-400"
                 onClick={() => removeQueued(file.name, file.size)}
               >
-                Remove
+                Cancel
               </button>
             </li>
           ))}
-          <li className="pt-1.5">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void handleUpload()}
-              className="inline-flex rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50 transition dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              {busy ? "Indexing…" : "Index files"}
-            </button>
-          </li>
         </ul>
       ) : null}
 
-      {indexedSourceIds.length > 0 ? (
+      {showIndexedSourcesList && indexedSourceIds.length > 0 ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800/50 dark:bg-emerald-950/30">
           <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wide dark:text-emerald-400">
             Indexed & linked ({indexedSourceIds.length})

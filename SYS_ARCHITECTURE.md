@@ -1,4 +1,4 @@
-System Architecture
+CampaignOS — System Architecture
 Layer 1 — Data Layer (Reacher)
 Structured TikTok Shop analytics and Social Intelligence data.
 Provides:

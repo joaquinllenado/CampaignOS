@@ -8,6 +8,7 @@ export type NiaRetrievalResult = {
 };
 
 const DEFAULT_NIA_BASE_URL = "https://apigcp.trynia.ai/v2";
+const DEFAULT_NIA_QUERY_TIMEOUT_MS = 10_000;
 const MAX_CONTEXT_RESULTS = 8;
 const MAX_EXCERPT_CHARS = 1_200;
 
@@ -132,6 +133,27 @@ function niaErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function niaQueryTimeoutMs(): number {
+  const configured = Number(Bun.env.NIA_QUERY_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_NIA_QUERY_TIMEOUT_MS;
+}
+
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Nia retrieval timed out after ${Math.round(timeoutMs / 1000)}s.`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 export async function retrieveNiaContext(input: CampaignAgentBody): Promise<NiaRetrievalResult> {
   const requestedSourceIds = input.nia?.sourceIds ?? [];
   const requestedSourceNames = input.nia?.sourceNames ?? [];
@@ -155,14 +177,17 @@ export async function retrieveNiaContext(input: CampaignAgentBody): Promise<NiaR
   }
 
   try {
-    const raw = await sdk.search.query({
-      messages: [{ role: "user", content: buildNiaQuery(input) }],
-      data_sources: requestedSourceIds.map((sourceId) => ({ source_id: sourceId })),
-      skip_llm: false,
-      include_sources: true,
-      fast_mode: true,
-      search_mode: "unified"
-    });
+    const raw = await withTimeout(
+      sdk.search.query({
+        messages: [{ role: "user", content: buildNiaQuery(input) }],
+        data_sources: requestedSourceIds.map((sourceId) => ({ source_id: sourceId })),
+        skip_llm: false,
+        include_sources: true,
+        fast_mode: true,
+        search_mode: "unified"
+      }),
+      niaQueryTimeoutMs()
+    );
 
     return {
       context: normalizeNiaResponse(raw),

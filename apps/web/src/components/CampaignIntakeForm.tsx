@@ -1,24 +1,25 @@
-import { FormEvent, useCallback, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { BrandContextDropzone } from "./BrandContextDropzone";
-import type { CampaignIntakeFields } from "../lib/campaignTypes";
-import { submitAgentRun } from "../lib/api";
-import type { AgentRunSuccess } from "../lib/campaignTypes";
-import { buildCampaignRunPayload } from "../lib/campaignPayload";
+import type { AgentRunSuccess, CampaignIntakeFields, CampaignIntelligenceReport } from "../lib/campaignTypes";
+import { submitAgentRunWithProgress } from "../lib/api";
+import { buildCampaignRunPayload, type CampaignRunBuildOptions, type CreatorMetricsForAgentRun } from "../lib/campaignPayload";
+import { DEMO_CAMPAIGN_FIELDS, DEMO_REACHER_SAMPLE_TARGET_COLLAB_5_1_26 } from "../demo/demoCampaign.fixture";
+import { isDemoPresentationEnabled, shouldAutoloadDemoFromQuery } from "../demo/demoEnv";
+
+type Props = {
+  onComplete: (report: CampaignIntelligenceReport, campaign: CampaignIntakeFields) => void;
+};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STEPS = ["Basics", "Audience", "Strategy", "Documents"];
+const STEPS = ["Basics", "Audience", "Context"];
 
 const STEP_META = [
   { title: "Campaign Basics", sub: "Give your campaign an identity." },
   { title: "Product & Audience", sub: "Define what you're promoting and who you're reaching." },
   {
-    title: "Campaign Strategy",
-    sub: "Upload a brief file if you have one, then add a written summary. We infer the business objective and KPI model from everything you shared."
-  },
-  {
-    title: "Additional documents",
-    sub: "Optional: add decks, reports, or past campaign files—indexed into Nia for the agent to search alongside your brief."
+    title: "Campaign context",
+    sub: "Write a short brief. Optionally attach decks or past-campaign docs — they index automatically."
   }
 ];
 
@@ -38,15 +39,55 @@ const inputCls =
 const labelCls = "block text-sm text-zinc-600 mb-1.5 dark:text-zinc-400";
 const textareaCls = `${inputCls} min-h-28 resize-y py-3`;
 
+function isCampaignReport(result: AgentRunSuccess | null): result is CampaignIntelligenceReport {
+  return Boolean(result && "kpiFramework" in result);
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function CampaignIntakeForm() {
+export function CampaignIntakeForm({ onComplete }: Props) {
   const [step, setStep] = useState(0);
   const [campaign, setCampaign] = useState<CampaignIntakeFields>({ ...defaultFields });
   const [niaSourceIds, setNiaSourceIds] = useState<string[]>([]);
-  const [result, setResult] = useState<AgentRunSuccess | null>(null);
+  const [fixtureCreators, setFixtureCreators] = useState<CreatorMetricsForAgentRun[] | null>(null);
+  const [sampleRunOptions, setSampleRunOptions] = useState<CampaignRunBuildOptions | null>(null);
+  const demoAutoHydratedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [progressLog, setProgressLog] = useState<{ id: number; label: string }[]>([]);
+  const progressSeq = useRef(0);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  const demoToolkit = isDemoPresentationEnabled();
+
+  const applyPresentationFixture = useCallback(() => {
+    setCampaign({ ...DEMO_CAMPAIGN_FIELDS });
+    setFixtureCreators(null);
+    setSampleRunOptions({ ...DEMO_REACHER_SAMPLE_TARGET_COLLAB_5_1_26 });
+    setNiaSourceIds([]);
+    setStep(0);
+    setError(null);
+  }, []);
+
+  const resetPresentationFixture = useCallback(() => {
+    setCampaign({ ...defaultFields });
+    setFixtureCreators(null);
+    setSampleRunOptions(null);
+    setNiaSourceIds([]);
+    setStep(0);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!demoToolkit || demoAutoHydratedRef.current || !shouldAutoloadDemoFromQuery()) return;
+    demoAutoHydratedRef.current = true;
+    applyPresentationFixture();
+  }, [demoToolkit, applyPresentationFixture]);
+
+  useEffect(() => {
+    if (!isLoading || progressLog.length === 0) return;
+    logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [progressLog, isLoading]);
 
   const updateCampaign = useCallback((patch: Partial<CampaignIntakeFields>) => {
     setCampaign((prev) => ({ ...prev, ...patch }));
@@ -59,80 +100,43 @@ export function CampaignIntakeForm() {
     return true;
   }
 
-  function resetAll() {
-    setCampaign({ ...defaultFields });
-    setNiaSourceIds([]);
-    setStep(0);
-    setResult(null);
-    setError(null);
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    /* Pressing Enter in a single-line field submits the <form>; only “Launch campaign”
+       on the final step should run the agent — otherwise intermediate steps would fire
+       the agent too early. */
+    const finalStepIndex = STEPS.length - 1;
+    if (step !== finalStepIndex) {
+      if (canAdvance()) {
+        setStep((s) => Math.min(s + 1, finalStepIndex));
+      }
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
+    progressSeq.current = 0;
+    setProgressLog([]);
     try {
-      const payload = buildCampaignRunPayload(campaign, niaSourceIds);
-      const next = await submitAgentRun(payload);
-      setResult(next);
+      const payload = buildCampaignRunPayload(campaign, niaSourceIds, {
+        creators: fixtureCreators ?? undefined,
+        ...(sampleRunOptions ?? {})
+      });
+      const next: AgentRunSuccess = await submitAgentRunWithProgress(payload, (label) => {
+        progressSeq.current += 1;
+        setProgressLog((prev) => [...prev, { id: progressSeq.current, label }]);
+      });
+      if (isCampaignReport(next)) {
+        onComplete(next, campaign);
+      } else {
+        setError("Agent returned an unsupported response shape.");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error.");
     } finally {
       setIsLoading(false);
     }
-  }
-
-  // ── Success screen ──────────────────────────────────────────────────────────
-  if (result?.mode === "intake") {
-    return (
-      <div className="space-y-5 py-4">
-        <div className="text-center py-8">
-          <div className="w-14 h-14 mx-auto mb-5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-2xl dark:bg-emerald-950/40 dark:border-emerald-800">
-            🚀
-          </div>
-          <h2 className="text-2xl font-bold text-zinc-900 mb-2 dark:text-zinc-100">Campaign queued!</h2>
-          <p className="text-zinc-500 text-sm dark:text-zinc-400">
-            Received{" "}
-            <time dateTime={result.receivedAt} className="text-zinc-700 dark:text-zinc-300">
-              {new Date(result.receivedAt).toLocaleString()}
-            </time>
-          </p>
-        </div>
-
-        {result.warnings.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-950/30">
-            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2 dark:text-amber-400">Heads-up</p>
-            <ul className="space-y-1 text-sm text-amber-800 dark:text-amber-300">
-              {result.warnings.map((w) => <li key={w}>• {w}</li>)}
-            </ul>
-          </div>
-        )}
-
-        {result.kpiPriorityNotes.length > 0 && (
-          <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 dark:border-zinc-700 dark:bg-zinc-900">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 dark:text-zinc-400">KPI Notes</p>
-            <ul className="space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
-              {result.kpiPriorityNotes.map((n) => <li key={n}>• {n}</li>)}
-            </ul>
-          </div>
-        )}
-
-        <details className="rounded-xl border border-stone-200 bg-stone-50 p-4 dark:border-zinc-700 dark:bg-zinc-900">
-          <summary className="cursor-pointer text-sm text-zinc-700 dark:text-zinc-300">View normalized payload</summary>
-          <pre className="mt-3 max-h-64 overflow-auto text-xs text-zinc-500 leading-relaxed dark:text-zinc-400">
-            {JSON.stringify(result.intake, null, 2)}
-          </pre>
-        </details>
-
-        <button
-          type="button"
-          onClick={resetAll}
-          className="w-full rounded-lg border border-stone-200 bg-white py-2.5 text-sm font-medium text-zinc-700 hover:bg-stone-50 hover:border-zinc-300 transition dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          Start a new campaign
-        </button>
-      </div>
-    );
   }
 
   // ── Progress bar ────────────────────────────────────────────────────────────
@@ -213,19 +217,9 @@ export function CampaignIntakeForm() {
     </div>
   );
 
-  // ── Step 2 — Strategy (brief) ───────────────────────────────────────────────
+  // ── Step 2 — Brief text + a single dropzone covering brief and supporting docs ──
   const step2 = (
     <div className="space-y-5">
-      <div className="rounded-xl border border-stone-200 bg-stone-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
-        <BrandContextDropzone
-          campaignLabel={campaign.name}
-          indexedSourceIds={niaSourceIds}
-          onIndexedSourceIdsChange={setNiaSourceIds}
-          title="Brief file"
-          description="If your strategy lives in a deck or doc, upload it here. We index it into Nia and use it together with the written summary below—add notes in the box if something is not in the file."
-          fileInputLabel="Upload campaign brief files"
-        />
-      </div>
       <div>
         <label className={labelCls}>Campaign brief *</label>
         <textarea
@@ -235,34 +229,107 @@ export function CampaignIntakeForm() {
           placeholder="Goals, messaging, timelines, hooks, mandatory CTAs..."
         />
       </div>
+      <div className="rounded-xl border border-stone-200 bg-stone-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
+        <BrandContextDropzone
+          campaignLabel={campaign.name}
+          indexedSourceIds={niaSourceIds}
+          onIndexedSourceIdsChange={setNiaSourceIds}
+          title="Brief & supporting documents"
+          description="Optional. Drop your brief deck plus any past-campaign or brand context — PDFs, decks, spreadsheets, notes. Each file indexes to Nia automatically."
+          fileInputLabel="Upload campaign documents"
+        />
+      </div>
     </div>
   );
 
-  // ── Step 3 — Additional documents (optional) ────────────────────────────────
-  const step3 = (
-    <div className="rounded-xl border border-stone-200 bg-stone-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
-      <BrandContextDropzone
-        campaignLabel={campaign.name}
-        indexedSourceIds={niaSourceIds}
-        onIndexedSourceIdsChange={setNiaSourceIds}
-      />
-    </div>
-  );
-
-  const stepContent = [step0, step1, step2, step3][step];
+  const stepContent = [step0, step1, step2][step];
   const isLastStep = step === STEPS.length - 1;
 
+  const loadingPanel = (
+    <div className="rounded-xl border border-stone-200 bg-stone-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
+      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Live run log</p>
+      <p className="text-xs text-zinc-500 mt-1 dark:text-zinc-400">
+        Each line appears when the agent finishes a pipeline stage — not an estimate.
+      </p>
+      <ul className="mt-4 max-h-56 overflow-y-auto space-y-2 pr-1">
+        {progressLog.map((row, i) => {
+          const latest = i === progressLog.length - 1;
+          return (
+            <li
+              key={row.id}
+              className={`flex gap-2.5 text-sm leading-snug ${
+                latest
+                  ? "text-zinc-900 dark:text-zinc-100 font-medium"
+                  : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              <span className="shrink-0 font-mono text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums w-6 text-right pt-0.5">
+                {i + 1}
+              </span>
+              <span>{row.label}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <div ref={logEndRef} className="h-0 w-full overflow-hidden" aria-hidden="true" />
+      {progressLog.length === 0 && (
+        <p className="mt-4 text-sm text-zinc-400 dark:text-zinc-500">Connecting to agent…</p>
+      )}
+    </div>
+  );
+
   // ── Main render ─────────────────────────────────────────────────────────────
+  const demoRibbon = demoToolkit ? (
+    <div className="mb-6 rounded-xl border border-stone-200 bg-stone-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900">
+      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Quick start</p>
+      <p className="mt-1 text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+        Load a sample brief tied to Reacher dummy shop “Grocery Stars” and the “Target Collab 5/1/26” window — metrics come from the live Reacher API when <code className="font-mono text-[11px]">REACHER_API_KEY</code> is set (otherwise the agent falls back to demo rows).
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={isLoading}
+          onClick={applyPresentationFixture}
+          className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+        >
+          Load sample
+        </button>
+        <button
+          type="button"
+          disabled={isLoading}
+          onClick={resetPresentationFixture}
+          className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="mx-auto w-full max-w-[520px]">
+      {demoRibbon}
       {progressBar}
 
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-zinc-900 mb-1 dark:text-zinc-100">{STEP_META[step].title}</h2>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">{STEP_META[step].sub}</p>
+        {isLastStep && isLoading ? (
+          <>
+            <h2 className="text-xl font-semibold text-zinc-900 mb-1 dark:text-zinc-100">
+              Running campaign intelligence
+            </h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Your brief is being analyzed. Stages below update as they complete.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="text-xl font-semibold text-zinc-900 mb-1 dark:text-zinc-100">{STEP_META[step].title}</h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{STEP_META[step].sub}</p>
+          </>
+        )}
       </div>
 
-      {stepContent}
+      {isLastStep && isLoading ? loadingPanel : stepContent}
 
       {error && (
         <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/30 dark:text-red-400">
@@ -274,8 +341,9 @@ export function CampaignIntakeForm() {
         {step > 0 && (
           <button
             type="button"
+            disabled={isLoading}
             onClick={() => setStep((s) => s - 1)}
-            className="flex-1 rounded-lg border border-stone-200 bg-white py-2.5 text-sm font-medium text-zinc-700 hover:bg-stone-50 hover:border-zinc-300 transition dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="flex-1 rounded-lg border border-stone-200 bg-white py-2.5 text-sm font-medium text-zinc-700 hover:bg-stone-50 hover:border-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             ← Back
           </button>

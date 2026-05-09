@@ -68,7 +68,7 @@ function buildAgentInput(sourceIds: string[], query: string): CampaignAgentBody 
   return {
     campaign: {
       name: "Nia Context Agent Test",
-      brand: "Nozo Demo Brand",
+      brand: "CampaignOS Demo Brand",
       objective: objectiveFromEnv(),
       product: "TikTok Shop hero product",
       audience: "social commerce shoppers",

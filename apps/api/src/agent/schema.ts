@@ -27,6 +27,7 @@ export const SUPPORTED_KPI_METRIC_NAMES = [
 const trimmedNonEmpty = z.string().trim().min(1);
 const confidenceSchema = z.enum(["low", "medium", "high"]);
 const resolvedObjectiveSchema = z.enum(["awareness", "engagement", "sales"]);
+const performanceTierSchema = z.enum(["low", "average", "high"]);
 export const campaignObjectiveSchema = z.enum(["awareness", "engagement", "sales", "auto"]);
 
 const reacherMetricSourceSchema = z
@@ -71,6 +72,35 @@ export const creatorMetricInputSchema = z
     sentimentScore: z.number().optional(),
     representativeComments: z.array(z.string().trim().min(1)).optional(),
     source: creatorMetricSourceSchema.optional()
+  })
+  .strict();
+
+export const campaignMetricSummarySchema = z
+  .object({
+    campaignType: z.string().trim().optional(),
+    campaignWindow: z.string().trim().optional(),
+    status: z.string().trim().optional(),
+    postingCreators: z.number().nonnegative().optional(),
+    videosPosted: z.number().nonnegative().optional(),
+    totalViews: z.number().nonnegative().optional(),
+    avgDailyViews: z.number().nonnegative().optional(),
+    peakVisibilityViews: z.number().nonnegative().optional(),
+    totalLikes: z.number().nonnegative().optional(),
+    totalComments: z.number().nonnegative().optional(),
+    avgEngagementRate: z.number().nonnegative().optional(),
+    totalOrders: z.number().nonnegative().optional(),
+    newCreatorsPosting: z.number().nonnegative().optional(),
+    creatorsReached: z.number().nonnegative().optional(),
+    creatorsMessaged: z.number().nonnegative().optional(),
+    tcInvitesSent: z.number().nonnegative().optional(),
+    keyTakeaways: z.array(z.string().trim().min(1)).optional(),
+    strongestFormats: z.array(z.string().trim().min(1)).optional(),
+    strongestCreatorTraits: z.array(z.string().trim().min(1)).optional(),
+    strengths: z.array(z.string().trim().min(1)).optional(),
+    weaknesses: z.array(z.string().trim().min(1)).optional(),
+    strategicRecommendations: z.array(z.string().trim().min(1)).optional(),
+    highestLeverageOpportunity: z.string().trim().optional(),
+    fetchedAt: z.string().optional()
   })
   .strict();
 
@@ -168,11 +198,62 @@ export const kpiFrameworkSchema = z
   })
   .strict();
 
+export const metricDefinitionSchema = z
+  .object({
+    name: z.string(),
+    displayName: z.string(),
+    definition: z.string(),
+    whyItMatters: z.string(),
+    sourceMetricKeys: z.array(z.string())
+  })
+  .strict();
+
+export const objectiveBlendSchema = z
+  .object({
+    weights: z
+      .object({
+        awareness: z.number().min(0).max(100),
+        engagement: z.number().min(0).max(100),
+        sales: z.number().min(0).max(100)
+      })
+      .strict(),
+    rationale: z.string(),
+    confidence: confidenceSchema
+  })
+  .strict();
+
+export const frameworkCreatorEvaluationSchema = z
+  .object({
+    creatorName: z.string(),
+    score: z.number().min(0).max(100),
+    performanceTier: performanceTierSchema,
+    tierRationale: z.string(),
+    strongestMetrics: z.array(z.string()),
+    weakestMetrics: z.array(z.string()),
+    missingMetrics: z.array(z.string()),
+    confidence: confidenceSchema
+  })
+  .strict();
+
+export const frameworkEvaluationSchema = z
+  .object({
+    objective: resolvedObjectiveSchema,
+    framework: kpiFrameworkSchema,
+    metricDefinitions: z.array(metricDefinitionSchema),
+    campaignScore: z.number().min(0).max(100),
+    creatorEvaluations: z.array(frameworkCreatorEvaluationSchema),
+    takeaways: z.array(z.string()),
+    confidence: confidenceSchema
+  })
+  .strict();
+
 export const creatorEvaluationSchema = z
   .object({
     creatorName: z.string(),
     score: z.number().min(0).max(100),
     rank: z.number().int().positive(),
+    performanceTier: performanceTierSchema,
+    tierRationale: z.string(),
     strengths: z.array(z.string()),
     weaknesses: z.array(z.string()),
     primaryDriver: z.string(),
@@ -193,6 +274,7 @@ export const attributionInsightSchema = z
 
 export const recommendationSchema = z
   .object({
+    id: z.string().optional(),
     priority: z.enum(["high", "medium", "low"]),
     category: z.enum([
       "creator_mix",
@@ -209,15 +291,67 @@ export const recommendationSchema = z
   })
   .strict();
 
+export const actionHealthSchema = z
+  .object({
+    status: z.enum(["green", "yellow", "red"]),
+    message: z.string(),
+    reasons: z.array(z.string()).optional()
+  })
+  .strict();
+
+export const agentActivityItemSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum([
+      "analysis_completed",
+      "kpi_framework_generated",
+      "recommendations_ready",
+      "drafts_generated",
+      "context_refreshed"
+    ]),
+    title: z.string(),
+    description: z.string(),
+    occurredAt: z.string(),
+    relatedCreatorHandle: z.string().optional()
+  })
+  .strict();
+
+export const creatorMessageDraftSchema = z
+  .object({
+    id: z.string(),
+    creatorName: z.string().optional(),
+    creatorHandle: z.string().optional(),
+    subject: z.string().optional(),
+    body: z.string(),
+    rationale: z.string(),
+    suggestionType: z.enum([
+      "messaging_alignment",
+      "creative_tweak",
+      "cta",
+      "timeline",
+      "measurement_ask",
+      "other"
+    ]),
+    linkedRecommendationId: z.string().optional()
+  })
+  .strict();
+
 export const campaignIntelligenceReportSchema = z
   .object({
     executiveSummary: z.string(),
+    performanceSnapshot: z.string(),
     objective: resolvedObjectiveSchema,
     dataProvenance: dataProvenanceSchema,
+    campaignSummary: campaignMetricSummarySchema.optional(),
     kpiFramework: kpiFrameworkSchema,
+    objectiveBlend: objectiveBlendSchema,
+    frameworkEvaluations: z.array(frameworkEvaluationSchema),
     creatorEvaluations: z.array(creatorEvaluationSchema),
     attributionInsights: z.array(attributionInsightSchema),
     recommendations: z.array(recommendationSchema),
+    actionHealth: actionHealthSchema,
+    agentActivity: z.array(agentActivityItemSchema),
+    creatorMessageDrafts: z.array(creatorMessageDraftSchema),
     confidence: confidenceSchema,
     generatedAt: z.string(),
     model: z.string()
@@ -228,14 +362,22 @@ export type CampaignObjective = z.infer<typeof campaignObjectiveSchema>;
 export type ResolvedCampaignObjective = z.infer<typeof resolvedObjectiveSchema>;
 export type CampaignIntakePayload = z.infer<typeof campaignIntakeSchema>;
 export type CreatorMetricInputPayload = z.infer<typeof creatorMetricInputSchema>;
+export type CampaignMetricSummary = z.infer<typeof campaignMetricSummarySchema>;
 export type CampaignAgentBody = z.infer<typeof intakeBodySchema>;
 export type NiaContextResult = z.infer<typeof niaContextResultSchema>;
 export type DataProvenance = z.infer<typeof dataProvenanceSchema>;
 export type WeightedMetric = z.infer<typeof weightedMetricSchema>;
 export type KpiFramework = z.infer<typeof kpiFrameworkSchema>;
+export type MetricDefinition = z.infer<typeof metricDefinitionSchema>;
+export type ObjectiveBlend = z.infer<typeof objectiveBlendSchema>;
+export type FrameworkCreatorEvaluation = z.infer<typeof frameworkCreatorEvaluationSchema>;
+export type FrameworkEvaluation = z.infer<typeof frameworkEvaluationSchema>;
 export type CreatorEvaluation = z.infer<typeof creatorEvaluationSchema>;
 export type AttributionInsight = z.infer<typeof attributionInsightSchema>;
 export type Recommendation = z.infer<typeof recommendationSchema>;
+export type ActionHealth = z.infer<typeof actionHealthSchema>;
+export type AgentActivityItem = z.infer<typeof agentActivityItemSchema>;
+export type CreatorMessageDraft = z.infer<typeof creatorMessageDraftSchema>;
 export type CampaignIntelligenceReport = z.infer<typeof campaignIntelligenceReportSchema>;
 
 export type NormalizedCampaignBrief = {
@@ -262,10 +404,14 @@ export type CampaignAgentState = {
   normalizedBrief?: NormalizedCampaignBrief;
   niaContext?: NiaContextResult[];
   reacherMetrics?: CreatorMetricInputPayload[];
+  campaignSummary?: CampaignMetricSummary;
   kpiFramework?: KpiFramework;
+  objectiveBlend?: ObjectiveBlend;
+  frameworkEvaluations?: FrameworkEvaluation[];
   creatorEvaluations?: CreatorEvaluation[];
   attributionInsights?: AttributionInsight[];
   recommendations?: Recommendation[];
+  creatorMessageDrafts?: CreatorMessageDraft[];
   report?: CampaignIntelligenceReport;
   dataProvenance?: DataProvenance;
   errors: string[];

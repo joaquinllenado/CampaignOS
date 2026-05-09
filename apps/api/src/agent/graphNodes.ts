@@ -4,12 +4,11 @@ import { fetchReacherMetrics } from "../integrations/reacher";
 import { detectObjective, detectObjectiveAfterNia, normalizeInput } from "./objective";
 import {
   composeReport,
-  evaluateCreators,
-  generateKpiFramework,
   reasonAboutAttribution,
   recommendOptimizations
 } from "./deterministicAnalysis";
 import { runCampaignStrategistAgent } from "./campaignStrategistAgent";
+import { blendFrameworkScores, calculateObjectiveBlend, runFrameworkAgents } from "./frameworkAgents";
 
 export function normalizeInputNode(state: CampaignAgentState): Partial<CampaignAgentState> {
   return { normalizedBrief: normalizeInput(state) };
@@ -49,22 +48,28 @@ export async function fetchReacherMetricsNode(
   const objective = state.normalizedBrief?.objective ?? detectObjective(state.input);
   const result = await fetchReacherMetrics(state.input, objective);
   const previousProvenance = state.dataProvenance;
+  const missingInputs = previousProvenance?.missingInputs ?? [];
+  const nextMissingInputs = result.source === "reacher" || result.source === "manual"
+    ? missingInputs.filter((input) => input !== "creatorMetrics")
+    : missingInputs;
 
   return {
     reacherMetrics: result.metrics,
+    campaignSummary: result.summary,
     dataProvenance: {
       contextSource: previousProvenance?.contextSource ?? "brief_only",
       metricsSource: result.source,
       niaSourcesUsed: previousProvenance?.niaSourcesUsed ?? [],
       reacherObjectsUsed: result.objectsUsed,
-      missingInputs: previousProvenance?.missingInputs ?? []
+      missingInputs: nextMissingInputs
     },
     errors: result.errors
   };
 }
 
-export const generateKpiFrameworkNode = generateKpiFramework;
-export const evaluateCreatorsNode = evaluateCreators;
+export const runFrameworkAgentsNode = runFrameworkAgents;
+export const calculateObjectiveBlendNode = calculateObjectiveBlend;
+export const blendFrameworkScoresNode = blendFrameworkScores;
 export const campaignStrategistAgentNode = runCampaignStrategistAgent;
 export const reasonAboutAttributionNode = reasonAboutAttribution;
 export const recommendOptimizationsNode = recommendOptimizations;

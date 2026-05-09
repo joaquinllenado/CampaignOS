@@ -1,6 +1,6 @@
-AI-Native Influencer Campaign Intelligence Agent
+CampaignOS — AI-Native Influencer Campaign Intelligence Agent
 Overview
-We are building an AI-native campaign intelligence and optimization agent designed to evaluate influencer campaigns across the full funnel based on the client’s business objective.
+We are building CampaignOS: an AI-native campaign intelligence and optimization agent designed to evaluate influencer campaigns across the full funnel based on the client’s business objective.
 Instead of focusing only on reporting vanity metrics, the platform autonomously:
 understands campaign goals
 
