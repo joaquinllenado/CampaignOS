@@ -1,4 +1,4 @@
-import { AgentPanel } from "./components/AgentPanel";
+import { CampaignIntakeForm } from "./components/CampaignIntakeForm";
 
 export function App() {
   return (
@@ -10,17 +10,17 @@ export function App() {
           </span>
           <div className="space-y-4">
             <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-              Agent-ready web app scaffold.
+              Campaign intelligence scaffold
             </h1>
             <p className="text-lg leading-8 text-slate-600 dark:text-slate-300">
-              A typed Elysia API powers backend and agent routes while the React frontend
-              talks to it through Vite's local proxy.
+              Submit structured campaign context for the intelligence agent API. Intake is
+              validated on the server; LangGraph orchestration plugs in next.
             </p>
           </div>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <AgentPanel />
+          <CampaignIntakeForm />
 
           <aside className="rounded-3xl border border-slate-200 bg-slate-950 p-6 text-slate-50 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-white/5 dark:shadow-black/20">
             <h2 className="text-lg font-semibold">Included</h2>
