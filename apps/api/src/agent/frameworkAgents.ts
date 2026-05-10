@@ -1,6 +1,5 @@
 import {
-  kpiFrameworkSchema,
-  objectiveBlendSchema,
+  unifiedScoringPackSchema,
   type CampaignAgentState,
   type CreatorEvaluation,
   type CreatorMetricInputPayload,
@@ -10,6 +9,8 @@ import {
   type MetricDefinition,
   type ObjectiveBlend,
   type ResolvedCampaignObjective,
+  type NormalizedCampaignBrief,
+  type UnifiedScoringPack,
   type WeightedMetric
 } from "./schema";
 import { createModel } from "./model";
@@ -19,13 +20,86 @@ import {
   compactCampaignSummaryForLlm,
   compactCreatorMetricsForLlm,
   compactNormalizedBriefForLlm,
-  compactNiaContextForLlm,
-  slimFrameworkEvaluationsForLlm
+  compactNiaContextForLlm
 } from "./llmContextCompact";
 import { cohortPerformanceTiersForScores, type PerformanceTier } from "./performanceTiering";
 import { normalizeMetricValue } from "./scoringNormalization";
+import { AGENT_WEIGHT_INSTRUCTIONS } from "./agentWeight";
 
 const OBJECTIVES: ResolvedCampaignObjective[] = ["awareness", "engagement", "sales"];
+
+const OBJECTIVE_BLEND_MIN = 15;
+const OBJECTIVE_BLEND_MAX = 80;
+
+/** Enforce AgentWeight hard constraints: sum 100, each [15, 80]. */
+function clampObjectiveBlendWeights(weights: ObjectiveBlend["weights"]): ObjectiveBlend["weights"] {
+  let a = Math.round(weights.awareness);
+  let e = Math.round(weights.engagement);
+  let s = Math.round(weights.sales);
+
+  const MIN = OBJECTIVE_BLEND_MIN;
+  const MAX = OBJECTIVE_BLEND_MAX;
+
+  const clampTriple = (): void => {
+    a = Math.min(MAX, Math.max(MIN, a));
+    e = Math.min(MAX, Math.max(MIN, e));
+    s = Math.min(MAX, Math.max(MIN, s));
+  };
+
+  const headroomIncrease = (): [number, "a" | "e" | "s"][] => [
+    [MAX - a, "a"],
+    [MAX - e, "e"],
+    [MAX - s, "s"]
+  ];
+
+  const headroomDecrease = (): [number, "a" | "e" | "s"][] => [
+    [a - MIN, "a"],
+    [e - MIN, "e"],
+    [s - MIN, "s"]
+  ];
+
+  for (let i = 0; i < 200; i++) {
+    clampTriple();
+    let sum = a + e + s;
+    const diff = 100 - sum;
+    if (diff === 0) {
+      return { awareness: a, engagement: e, sales: s };
+    }
+
+    if (diff > 0) {
+      const candidates = [...headroomIncrease()].filter(([room]) => room > 0);
+      if (!candidates.length) break;
+      candidates.sort((x, y) => y[0] - x[0]);
+      const [room, slot] = candidates[0]!;
+      const step = Math.min(diff, Math.max(room, 0));
+      if (step <= 0) break;
+      if (slot === "a") a += step;
+      else if (slot === "e") e += step;
+      else s += step;
+    } else {
+      const candidates = [...headroomDecrease()].filter(([room]) => room > 0);
+      if (!candidates.length) break;
+      candidates.sort((x, y) => y[0] - x[0]);
+      const [room, slot] = candidates[0]!;
+      const step = Math.min(-diff, Math.max(room, 0));
+      if (step <= 0) break;
+      if (slot === "a") a -= step;
+      else if (slot === "e") e -= step;
+      else s -= step;
+    }
+
+    clampTriple();
+    sum = a + e + s;
+    if (sum !== 100) continue;
+    return { awareness: a, engagement: e, sales: s };
+  }
+
+  clampTriple();
+  if (a + e + s !== 100 || a < MIN || a > MAX || e < MIN || e > MAX || s < MIN || s > MAX) {
+    return { awareness: 34, engagement: 33, sales: 33 };
+  }
+  return { awareness: a, engagement: e, sales: s };
+}
 
 const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   reach: {
@@ -170,14 +244,137 @@ const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   }
 };
 
-const FRAMEWORK_GUIDANCE: Record<ResolvedCampaignObjective, string> = {
-  awareness:
-    "Evaluate reach quality, engagement density, amplification efficiency, consistency, and breakout potential. Do not treat sales outcomes as the main proof of awareness.",
-  engagement:
-    "Evaluate engagement quality, conversation depth, creator resonance, sustained interaction, and community amplification. Prioritize meaningful participation over passive reach.",
-  sales:
-    "Evaluate revenue efficiency, conversion strength, creator sales efficiency, sales consistency, and scalable growth potential. Prioritize efficient commercial outcomes over vanity metrics."
-};
+const UNIFIED_OBJECTIVE_WEIGHT_BLUEPRINT = `${AGENT_WEIGHT_INSTRUCTIONS.trim()}
+
+
+Unified scorer — additional hard output rules:
+• Phase 1: Apply the blueprint above to objectiveBlend.weights (Awareness / Engagement / Sales). Weights MUST sum to exactly 100. Each funnel weight MUST be between ${OBJECTIVE_BLEND_MIN}% and ${OBJECTIVE_BLEND_MAX}% inclusive (do not expose scoring formulas or raw percentile math to the user).
+• Phase 2: Framework influence mirrors objective weights. Each KPI framework (awareness / engagement / sales) must use metric weights that sum to exactly 100 and metrics must align with that framework’s objective enum.
+• Apply trust-led conversion, primary KPI overrides, repeated-theme priority, signal hierarchy (KPIs > repeated goals > CTA > content style > creator prefs > isolated keywords).
+• Populate rationale, classification, benchmark interpretation context, recommendation priorities, and risk signals per OUTPUT REQUIREMENTS in the blueprint; tone = strategic intelligence, not analytics dashboards.
+Include evaluationLogic bullets that cite objective trade-offs (awareness vs sales, engagement vs sales, engagement vs passive reach).
+Return ONLY JSON validated by schema. Prefer metrics referenced in normalizedBriefCompact and creatorMetricsPreview; otherwise follow the KPI catalog in defaultFallbackPack.`;
+
+function finalizeObjectiveBlendCandidate(
+  candidate: ObjectiveBlend | undefined,
+  fallback: ObjectiveBlend,
+  errors: string[]
+): ObjectiveBlend {
+  if (!candidate) {
+    errors.push("Unified scorer returned no objective blend; deterministic mix applied.");
+    return fallback;
+  }
+  const rawTotal = candidate.weights.awareness + candidate.weights.engagement + candidate.weights.sales;
+  if (Math.round(rawTotal) !== 100) {
+    errors.push(`Unified objective blend summed to ${Math.round(rawTotal)}% instead of 100; deterministic mix applied.`);
+    return fallback;
+  }
+  const buckets = [
+    candidate.weights.awareness,
+    candidate.weights.engagement,
+    candidate.weights.sales
+  ] as const;
+  if (buckets.some((weight) => weight < OBJECTIVE_BLEND_MIN || weight > OBJECTIVE_BLEND_MAX)) {
+    errors.push(
+      `Unified objective blend violated min ${OBJECTIVE_BLEND_MIN} / max ${OBJECTIVE_BLEND_MAX} funnel rule; deterministic mix applied.`
+    );
+    return fallback;
+  }
+  return candidate;
+}
+
+function finalizeKpiFrameworkCandidate(
+  objective: ResolvedCampaignObjective,
+  candidate: KpiFramework | undefined,
+  normalizedBrief: NormalizedCampaignBrief,
+  state: CampaignAgentState,
+  errors: string[]
+): KpiFramework {
+  const fallback = defaultKpiFramework(objective, { ...normalizedBrief, objective }, Boolean(state.niaContext?.length));
+  if (!candidate) {
+    errors.push(`Unified scorer omitted the ${objective} framework; defaults used.`);
+    return fallback;
+  }
+  const framework: KpiFramework = { ...candidate, objective };
+  const totalWeight = framework.metrics.reduce((sum, metric) => sum + metric.weight, 0);
+  if (Math.round(totalWeight) !== 100) {
+    errors.push(`${objective} unified metrics summed to ${Math.round(totalWeight)}; defaults used.`);
+    return fallback;
+  }
+  return framework;
+}
+
+async function runUnifiedFrameworkPack(
+  state: CampaignAgentState
+): Promise<{ frameworkEvaluations: FrameworkEvaluation[]; objectiveBlend: ObjectiveBlend; errors: string[] }> {
+  const normalizedBrief = state.normalizedBrief ?? normalizeInput(state);
+  const errors: string[] = [];
+  const deterministicBlend = deterministicObjectiveBlend(state);
+
+  const defaultPackBase = (): UnifiedScoringPack => ({
+    objectiveBlend: deterministicBlend,
+    frameworks: {
+      awareness: defaultKpiFramework("awareness", { ...normalizedBrief, objective: "awareness" }, Boolean(state.niaContext?.length)),
+      engagement: defaultKpiFramework(
+        "engagement",
+        { ...normalizedBrief, objective: "engagement" },
+        Boolean(state.niaContext?.length)
+      ),
+      sales: defaultKpiFramework("sales", { ...normalizedBrief, objective: "sales" }, Boolean(state.niaContext?.length))
+    }
+  });
+
+  let pack: UnifiedScoringPack | null = null;
+  const model = createModel();
+  if (model) {
+    try {
+      const structuredModel = model.withStructuredOutput(unifiedScoringPackSchema);
+      pack = await structuredModel.invoke([
+        {
+          role: "system",
+          content: `You are the CampaignOS campaign scorer. In ONE structured answer, output:
+• objectiveBlend: funnel weights plus rationale/confidence referencing the Detection & Confidence rules.
+• frameworks: KPI scorecards for awareness, engagement, and sales (each weighted metrics sum to 100; include KPI priorities inside summary + evaluationLogic).
+${UNIFIED_OBJECTIVE_WEIGHT_BLUEPRINT}
+Return ONLY JSON validated by schema. Use metrics that exist in normalizedBriefCompact and creatorMetricsPreview payloads when possible; otherwise choose from the KPI catalog in defaultFallbackPack.`
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            normalizedBriefCompact: compactNormalizedBriefForLlm({ ...normalizedBrief, objective: normalizedBrief.objective }),
+            niaContext: compactNiaContextForLlm(state.niaContext ?? []),
+            creatorMetricsPreview: compactCreatorMetricsForLlm(state.reacherMetrics ?? []),
+            campaignSummary: compactCampaignSummaryForLlm(state.campaignSummary),
+            defaultFallbackPack: defaultPackBase()
+          })
+        }
+      ]);
+    } catch (error) {
+      errors.push(`Unified scoring agent failed, so deterministic packs were used: ${errorMessage(error)}`);
+      pack = null;
+    }
+  }
+
+  let resolvedPack = pack ?? defaultPackBase();
+  resolvedPack = {
+    objectiveBlend: finalizeObjectiveBlendCandidate(resolvedPack.objectiveBlend, deterministicBlend, errors),
+    frameworks: {
+      awareness: finalizeKpiFrameworkCandidate("awareness", resolvedPack.frameworks.awareness, normalizedBrief, state, errors),
+      engagement: finalizeKpiFrameworkCandidate("engagement", resolvedPack.frameworks.engagement, normalizedBrief, state, errors),
+      sales: finalizeKpiFrameworkCandidate("sales", resolvedPack.frameworks.sales, normalizedBrief, state, errors)
+    }
+  };
+
+  const frameworkEvaluations: FrameworkEvaluation[] = OBJECTIVES.map((objective) =>
+    buildFrameworkEvaluation(objective, resolvedPack.frameworks[objective], state)
+  );
+
+  return {
+    frameworkEvaluations,
+    objectiveBlend: resolvedPack.objectiveBlend,
+    errors
+  };
+}
 
 type Contribution = { name: string; score: number; weight: number };
 
@@ -262,88 +459,48 @@ function frameworkTakeaways(
   ];
 }
 
-async function generateFrameworkForObjective(
-  state: CampaignAgentState,
-  objective: ResolvedCampaignObjective
-): Promise<{ framework: KpiFramework; errors: string[] }> {
-  const normalizedBrief = state.normalizedBrief ?? normalizeInput(state);
-  const fallback = defaultKpiFramework(objective, { ...normalizedBrief, objective }, Boolean(state.niaContext?.length));
-  const model = createModel();
-  if (!model) return { framework: fallback, errors: [] };
-
-  try {
-    const structuredModel = model.withStructuredOutput(kpiFrameworkSchema);
-    const framework = await structuredModel.invoke([
-      {
-        role: "system",
-        content:
-          "You are a specialized CampaignOS framework agent. Return only a KPI framework matching the schema. Metric weights must sum to 100."
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          objective,
-          frameworkGuidance: FRAMEWORK_GUIDANCE[objective],
-          normalizedBrief: compactNormalizedBriefForLlm({ ...normalizedBrief, objective }),
-          niaContext: compactNiaContextForLlm(state.niaContext ?? []),
-          availableMetrics: compactCreatorMetricsForLlm(state.reacherMetrics ?? []),
-          campaignSummary: compactCampaignSummaryForLlm(state.campaignSummary),
-          defaultFramework: fallback
-        })
-      }
-    ]);
-    const totalWeight = framework.metrics.reduce((sum, metric) => sum + metric.weight, 0);
-    return Math.round(totalWeight) === 100
-      ? { framework: { ...framework, objective }, errors: [] }
-      : { framework: fallback, errors: [`${objective} framework weights were invalid, so defaults were used.`] };
-  } catch (error) {
+function buildFrameworkEvaluation(
+  objective: ResolvedCampaignObjective,
+  framework: KpiFramework,
+  state: CampaignAgentState
+): FrameworkEvaluation {
+  const metrics = state.reacherMetrics ?? [];
+  const draftedEvaluations = metrics.map((creator) => evaluateCreatorForFramework(creator, metrics, framework));
+  const frameworkTiers = cohortPerformanceTiersForScores(draftedEvaluations.map((item) => item.score));
+  const creatorEvaluations = draftedEvaluations.map(({ contributions: _contributions, ...evaluation }, idx) => {
+    const tier = frameworkTiers[idx]!;
     return {
-      framework: fallback,
-      errors: [`${objective} framework agent failed, so defaults were used: ${errorMessage(error)}`]
+      ...evaluation,
+      performanceTier: tier,
+      tierRationale: `${tierLabel(tier)} for ${objective}: ${evaluation.score}/100 vs ${metrics.length} creators in this set (tier is cohort-relative within the weighted ${objective} scorecard).`
     };
-  }
+  });
+  const campaignScore = creatorEvaluations.length
+    ? Math.round(creatorEvaluations.reduce((sum, item) => sum + item.score, 0) / creatorEvaluations.length)
+    : 0;
+
+  return {
+    objective,
+    framework,
+    metricDefinitions: framework.metrics.map((metric) => metricDefinitionFor(metric.name)),
+    campaignScore,
+    creatorEvaluations,
+    takeaways: frameworkTakeaways(objective, creatorEvaluations),
+    confidence:
+      creatorEvaluations.some((item) => item.confidence === "medium") ? "medium" : framework.confidence
+  };
 }
 
 export async function runFrameworkAgents(state: CampaignAgentState): Promise<Partial<CampaignAgentState>> {
-  const metrics = state.reacherMetrics ?? [];
-  const errors: string[] = [];
-  const frameworkEvaluations: FrameworkEvaluation[] = [];
-
-  for (const objective of OBJECTIVES) {
-    const generated = await generateFrameworkForObjective(state, objective);
-    errors.push(...generated.errors);
-    const draftedEvaluations = metrics.map((creator) => evaluateCreatorForFramework(creator, metrics, generated.framework));
-    const frameworkTiers = cohortPerformanceTiersForScores(draftedEvaluations.map((item) => item.score));
-    const creatorEvaluations = draftedEvaluations.map(({ contributions: _contributions, ...evaluation }, idx) => {
-      const tier = frameworkTiers[idx]!;
-      return {
-        ...evaluation,
-        performanceTier: tier,
-        tierRationale: `${tierLabel(tier)} for ${objective}: ${evaluation.score}/100 vs ${metrics.length} creators in this set (tier is cohort-relative within the weighted ${objective} scorecard).`
-      };
-    });
-    const campaignScore = creatorEvaluations.length
-      ? Math.round(creatorEvaluations.reduce((sum, item) => sum + item.score, 0) / creatorEvaluations.length)
-      : 0;
-
-    frameworkEvaluations.push({
-      objective,
-      framework: generated.framework,
-      metricDefinitions: generated.framework.metrics.map((metric) => metricDefinitionFor(metric.name)),
-      campaignScore,
-      creatorEvaluations,
-      takeaways: frameworkTakeaways(objective, creatorEvaluations),
-      confidence: creatorEvaluations.some((item) => item.confidence === "medium") ? "medium" : generated.framework.confidence
-    });
-  }
-
+  const unified = await runUnifiedFrameworkPack(state);
   const primaryFramework =
-    frameworkEvaluations.find((item) => item.objective === state.normalizedBrief?.objective) ?? frameworkEvaluations[0];
-
+    unified.frameworkEvaluations.find((item) => item.objective === state.normalizedBrief?.objective) ??
+    unified.frameworkEvaluations[0];
   return {
-    frameworkEvaluations,
+    frameworkEvaluations: unified.frameworkEvaluations,
     kpiFramework: primaryFramework?.framework,
-    errors
+    objectiveBlend: unified.objectiveBlend,
+    errors: [...unified.errors]
   };
 }
 
@@ -357,13 +514,88 @@ function defaultObjectiveBlend(primary: ResolvedCampaignObjective): ObjectiveBle
   };
 }
 
-function objectiveKeywordScore(text: string, objective: ResolvedCampaignObjective): number {
-  const keywords: Record<ResolvedCampaignObjective, string[]> = {
-    awareness: ["awareness", "reach", "views", "impressions", "visibility", "brand", "launch"],
-    engagement: ["engagement", "comments", "saves", "shares", "community", "conversation", "resonance"],
-    sales: ["sales", "gmv", "conversion", "purchase", "roas", "cpa", "shop", "revenue"]
+function escapeRegexChars(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Repeated-theme approximation: bounded word/phrase occurrences (aligned with blueprint — themes over lone keywords). */
+function hitLower(haystackLower: string, needle: string): number {
+  const n = needle.toLowerCase().trim();
+  if (!n) return 0;
+  if (/\s/.test(n)) {
+    let c = 0;
+    let from = 0;
+    while (true) {
+      const ix = haystackLower.indexOf(n, from);
+      if (ix === -1) break;
+      c++;
+      from = ix + Math.max(1, n.length);
+    }
+    return c;
+  }
+  return [...haystackLower.matchAll(new RegExp(`\\b${escapeRegexChars(n)}\\b`, "g"))].length;
+}
+
+function objectiveKeywordStrength(fullTextLower: string, objective: ResolvedCampaignObjective): number {
+  const awarenessNeedles = [
+    "awareness",
+    "visibility",
+    "reach",
+    "impressions",
+    "viral",
+    "virality",
+    "amplify",
+    "amplification",
+    "trend",
+    "mass awareness",
+    "broad audience",
+    "cultural",
+    "exposure",
+    "views",
+    "momentum"
+  ];
+  const engagementNeedles = [
+    "authentic",
+    "authenticity",
+    "trust",
+    "honest",
+    "conversation",
+    "comments",
+    "comment",
+    "resonance",
+    "community",
+    "recommendation",
+    "reviews",
+    "believable",
+    "participation",
+    "discussion",
+    "affinity",
+    "connection",
+    "engagement"
+  ];
+  const salesNeedles = [
+    "sales",
+    "gmv",
+    "conversion",
+    "roi",
+    "roas",
+    "cpa",
+    "purchase",
+    "revenue",
+    "orders",
+    "tiktok shop",
+    "shop now",
+    "purchase intent",
+    "creator conversion",
+    "cart",
+    "gmv efficiency"
+  ];
+  const catalogs: Record<ResolvedCampaignObjective, readonly string[]> = {
+    awareness: awarenessNeedles,
+    engagement: engagementNeedles,
+    sales: salesNeedles
   };
-  return keywords[objective].reduce((score, keyword) => score + (text.includes(keyword) ? 1 : 0), 0);
+  return catalogs[objective].reduce((acc, needle) => acc + hitLower(fullTextLower, needle), 0);
 }
 
 function normalizeWeights(raw: Record<ResolvedCampaignObjective, number>): ObjectiveBlend["weights"] {
@@ -387,6 +619,8 @@ function normalizeWeights(raw: Record<ResolvedCampaignObjective, number>): Objec
 
 function deterministicObjectiveBlend(state: CampaignAgentState): ObjectiveBlend {
   const normalizedBrief = state.normalizedBrief ?? normalizeInput(state);
+  const kpiCombined = [...normalizedBrief.kpiPriorities].join("\n").toLowerCase();
+
   const text = [
     normalizedBrief.objective,
     normalizedBrief.brief,
@@ -398,81 +632,103 @@ function deterministicObjectiveBlend(state: CampaignAgentState): ObjectiveBlend 
     .join(" ")
     .toLowerCase();
 
-  const raw: Record<ResolvedCampaignObjective, number> = { awareness: 20, engagement: 20, sales: 20 };
-  raw[normalizedBrief.objective] += 40;
-  for (const objective of OBJECTIVES) {
-    raw[objective] += objectiveKeywordScore(text, objective) * 5;
+  /** Explicit KPI cues (weighted higher than stray copy). */
+  const commerceKpiHits = ["gmv", "orders", "order volume", "conversion", "revenue", "purchase", "tiktok shop", "creator conversion", "creator sales"].reduce(
+    (n, w) => n + hitLower(`${kpiCombined} ${normalizedBrief.objective}`, w),
+    0
+  );
+
+  const trustMechanismHits = ["authentic", "authenticity", "trust", "honest", "recommendation", "conversation", "comments", "believable", "reviews", "creator opinion"].reduce(
+    (n, w) => n + hitLower(text, w),
+    0
+  );
+
+  const kpisHeavyCommerce = /\b(primary|priorit|kpi|success|measurable\s+goal|north\s+star).{0,160}\b(gmv|orders?|conversion|revenue|\bpurchase|tiktok\s+shop|creator\s+conversion|\broas\b|\broi\b)/is.test(
+    `${kpiCombined}\n${text}`
+  );
+  const kpisHeavyTrustMechanism = /\b(primary|priorit|kpi|success|measurable\s+goal|north\s+star).{0,160}\b(trust|authentic|comments|conversation|reviews|believable|opinion|\bcta\b\s+style)/is.test(
+    `${kpiCombined}\n${text}`
+  );
+
+  let weights: ObjectiveBlend["weights"];
+
+  /** Primary KPI OVERRIDE + trust-led fusion (AgentWeight blueprint). */
+  const dualCommerceAndTrustMechanismPrimary = kpisHeavyCommerce && kpisHeavyTrustMechanism && commerceKpiHits >= 1 && trustMechanismHits >= 3;
+  if (dualCommerceAndTrustMechanismPrimary) {
+    weights = clampObjectiveBlendWeights({
+      awareness: 15,
+      engagement: 40,
+      sales: 45
+    });
+  } else if (kpisHeavyCommerce && trustMechanismHits >= 4 && commerceKpiHits >= 2) {
+    weights = clampObjectiveBlendWeights({
+      awareness: commerceKpiHits >= 4 ? 15 : 20,
+      engagement: commerceKpiHits >= 5 ? 35 : 40,
+      sales: commerceKpiHits >= 5 ? 50 : commerceKpiHits >= 4 ? 45 : 40
+    });
+  } else {
+    /** Signal hierarchy approximation: KPIs > repeated thematic copy > observed metrics > summary stats. */
+    const raw: Record<ResolvedCampaignObjective, number> = { awareness: 18, engagement: 22, sales: 18 };
+    raw[normalizedBrief.objective] += 40;
+
+    const kpiMirror = `${kpiCombined}\n${kpiCombined}`;
+    for (const objective of OBJECTIVES) {
+      raw[objective] += objectiveKeywordStrength(text, objective) * 6;
+      raw[objective] += objectiveKeywordStrength(kpiMirror, objective) * 5;
+    }
+
+    raw.engagement += 4; /** Engagement rarely 0 — creator-led default lift (blueprint guidance). */
+
+    const metrics = state.reacherMetrics ?? [];
+    if (metrics.some((item) => item.gmv !== undefined || item.conversionRate !== undefined || item.roas !== undefined)) {
+      raw.sales += 12;
+    }
+    if (metrics.some((item) => item.comments !== undefined || item.saves !== undefined || item.shares !== undefined)) {
+      raw.engagement += 10;
+    }
+    if (metrics.some((item) => item.reach !== undefined || item.impressions !== undefined)) {
+      raw.awareness += 10;
+    }
+    if (state.campaignSummary?.totalOrders !== undefined) raw.sales += 8;
+    if (
+      state.campaignSummary?.totalLikes !== undefined ||
+      state.campaignSummary?.totalComments !== undefined ||
+      state.campaignSummary?.avgEngagementRate !== undefined
+    ) {
+      raw.engagement += 8;
+    }
+    if (state.campaignSummary?.totalViews !== undefined || state.campaignSummary?.avgDailyViews !== undefined) {
+      raw.awareness += 8;
+    }
+
+    weights = clampObjectiveBlendWeights(normalizeWeights(raw));
   }
 
-  const metrics = state.reacherMetrics ?? [];
-  if (metrics.some((item) => item.gmv !== undefined || item.conversionRate !== undefined || item.roas !== undefined)) {
-    raw.sales += 10;
-  }
-  if (metrics.some((item) => item.comments !== undefined || item.saves !== undefined || item.shares !== undefined)) {
-    raw.engagement += 8;
-  }
-  if (metrics.some((item) => item.reach !== undefined || item.impressions !== undefined)) {
-    raw.awareness += 8;
-  }
-  if (state.campaignSummary?.totalOrders !== undefined) raw.sales += 6;
-  if (
-    state.campaignSummary?.totalLikes !== undefined ||
-    state.campaignSummary?.totalComments !== undefined ||
-    state.campaignSummary?.avgEngagementRate !== undefined
-  ) {
-    raw.engagement += 6;
-  }
-  if (state.campaignSummary?.totalViews !== undefined || state.campaignSummary?.avgDailyViews !== undefined) {
-    raw.awareness += 6;
+  let rationalePieces: string[];
+
+  if (dualCommerceAndTrustMechanismPrimary) {
+    rationalePieces = [
+      `Trust-led commerce: KPI priorities stress revenue outcomes while thematic copy repeats authenticity/trust — parity-style blend with Sales at ${weights.sales}%.`
+    ];
+  } else if (kpisHeavyCommerce && trustMechanismHits >= 4 && commerceKpiHits >= 2) {
+    rationalePieces = [
+      "Strong commerce KPIs paired with recurring trust cues: Sales leads while Engagement stays co-primary (trust-led conversion pattern)."
+    ];
+  } else {
+    rationalePieces = [
+      `Weights follow the blueprint hierarchy (explicit KPIs > recurring goals/themes > telemetry). Primary resolved objective is "${normalizedBrief.objective}".`,
+      kpisHeavyCommerce ? "Commerce KPI text triggered stronger Sales influence." : "",
+      trustMechanismHits >= 5 ? "High trust-building language increased Engagement materially." : ""
+    ].filter(Boolean);
   }
 
-  const weights = normalizeWeights(raw);
   return {
     weights,
     rationale:
-      `The goal mix was inferred from the ${normalizedBrief.objective} campaign objective, KPI priorities, Nia context, and which funnel metrics were available.`,
-    confidence: state.niaContext?.length ? "high" : "medium"
+      rationalePieces.join(" ") +
+      " Metric availability nudges weights when KPI text is ambiguous; the scorer may refine this when the LLM is available.",
+    confidence: state.niaContext?.length ? "high" : kpiCombined.length ? "medium" : "medium"
   };
-}
-
-export async function calculateObjectiveBlend(state: CampaignAgentState): Promise<Partial<CampaignAgentState>> {
-  const fallback = deterministicObjectiveBlend(state);
-  const model = createModel();
-  if (!model) return { objectiveBlend: fallback };
-
-  try {
-    const structuredModel = model.withStructuredOutput(objectiveBlendSchema);
-    const briefForPrompt = compactNormalizedBriefForLlm(state.normalizedBrief ?? normalizeInput(state));
-    const blend = await structuredModel.invoke([
-      {
-        role: "system",
-        content:
-          "Calculate the CampaignOS objective goal mix. Weights for awareness, engagement, and sales must sum to 100. Use the campaign goal, KPI priorities, context, observed metric availability, and slim framework summaries."
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          normalizedBrief: briefForPrompt,
-          niaContext: compactNiaContextForLlm(state.niaContext ?? []),
-          metrics: compactCreatorMetricsForLlm(state.reacherMetrics ?? []),
-          campaignSummary: compactCampaignSummaryForLlm(state.campaignSummary),
-          frameworkEvaluationsSlim: slimFrameworkEvaluationsForLlm(state.frameworkEvaluations ?? []),
-          deterministicFallback: fallback
-        })
-      }
-    ]);
-
-    const total = blend.weights.awareness + blend.weights.engagement + blend.weights.sales;
-    if (Math.round(total) !== 100) {
-      return { objectiveBlend: fallback, errors: ["Objective blend weights were invalid, so deterministic weights were used."] };
-    }
-    return { objectiveBlend: blend };
-  } catch (error) {
-    return {
-      objectiveBlend: fallback,
-      errors: [`Objective blend agent failed, so deterministic weights were used: ${errorMessage(error)}`]
-    };
-  }
 }
 
 function recommendedCreatorAction(objective: ResolvedCampaignObjective, creatorName: string, tier: PerformanceTier): string {

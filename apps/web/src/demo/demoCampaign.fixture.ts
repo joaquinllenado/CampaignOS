@@ -20,16 +20,16 @@ export const DEMO_REACHER_SAMPLE_TARGET_COLLAB_5_1_26: CampaignRunBuildOptions =
 export const DEMO_CAMPAIGN_FIELDS: CampaignIntakeFields = {
   name: "Target Collab 5/1/26",
   brand: "Grocery Stars",
-  product: "TikTok Shop creator program — mechanical keyboard lineup (OPAL, BLACKICE, Naruto collab SKUs)",
+  product: "Food and Beverages",
   audience:
-    "US TikTok shoppers and tech-entertainment creators; short-form native; deal-aware; reached via Target Collabs plus ongoing affiliate posts.",
-  budget: "85000",
+    "18–34, with a secondary band of 35–44 for grocery/home shoppers.",
+  budget: "500",
   brief: [
-    "Program goal: grow GMV and shoppable video volume through the May 1 Target Collab push on flagship keyboard SKUs while keeping fulfillment and sample workflows healthy.",
-    "Creative: unbox/hooks, switch tests, desk-setup integrations; strong product-in-hand; audible typing clips optional.",
+    "Program goal: grow GMV and shoppable video volume through the May 1 Target Collab push on food and beverage SKUs while keeping fulfillment and sample workflows healthy.",
+    "Creative: tastings, pantry/stocking hooks, recipes, hauls, price-deal urgency; native short-form product-in-hand.",
     "Ops: respect Target Collab invite caps; prioritize creators with completed sample history where possible.",
     "Measurement window: early May sprint — focus on views, engaged comments/saves, outbound CTR, add-to-cart, and GMV by SKU cohort; compare against Reacher dashboard aggregates for the same shop/date range."
-  ].join("\n\n")
+  ].join("\n\n"),
 };
 
 export function demoAgentCreatorsPayload(): CreatorMetricsForAgentRun[] {

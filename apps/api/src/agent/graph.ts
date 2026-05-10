@@ -18,7 +18,6 @@ import {
 } from "./schema";
 import {
   blendFrameworkScoresNode,
-  calculateObjectiveBlendNode,
   campaignStrategistAgentNode,
   composeReportNode,
   fetchReacherMetricsNode,
@@ -29,30 +28,28 @@ import {
   retrieveNiaContextNode
 } from "./graphNodes";
 
-const CAMPAIGN_GRAPH_PROGRESS_LABELS: Record<string, string> = {
+const CAMPAIGN_GRAPH_PROGRESS_LABELS = {
   normalizeInput: "Parsing campaign brief",
   retrieveNiaContext: "Retrieving context from your documents",
   fetchReacherMetrics: "Gathering creator performance signals",
-  runFrameworkAgents: "Running awareness, engagement, and sales frameworks",
-  calculateObjectiveBlend: "Calculating campaign goal mix",
+  runFrameworkAgents: "Running scorer (funnel weights + KPI frameworks)",
   blendFrameworkScores: "Labeling creator performance tiers",
   campaignStrategistAgent: "Determining market strategy",
   reasonAboutAttribution: "Analyzing attribution",
   recommendOptimizations: "Surfacing optimizations",
   composeReport: "Assembling your campaign report"
-};
+} as const;
 
 const CAMPAIGN_GRAPH_STEPS = [
-  { node: "normalizeInput", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.normalizeInput, run: normalizeInputNode },
-  { node: "retrieveNiaContext", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.retrieveNiaContext, run: retrieveNiaContextNode },
-  { node: "fetchReacherMetrics", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.fetchReacherMetrics, run: fetchReacherMetricsNode },
-  { node: "runFrameworkAgents", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.runFrameworkAgents, run: runFrameworkAgentsNode },
-  { node: "calculateObjectiveBlend", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.calculateObjectiveBlend, run: calculateObjectiveBlendNode },
-  { node: "blendFrameworkScores", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.blendFrameworkScores, run: blendFrameworkScoresNode },
-  { node: "campaignStrategistAgent", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.campaignStrategistAgent, run: campaignStrategistAgentNode },
-  { node: "reasonAboutAttribution", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.reasonAboutAttribution, run: reasonAboutAttributionNode },
-  { node: "recommendOptimizations", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.recommendOptimizations, run: recommendOptimizationsNode },
-  { node: "composeReport", label: CAMPAIGN_GRAPH_PROGRESS_LABELS.composeReport, run: composeReportNode }
+  { node: "normalizeInput" as const, run: normalizeInputNode },
+  { node: "retrieveNiaContext" as const, run: retrieveNiaContextNode },
+  { node: "fetchReacherMetrics" as const, run: fetchReacherMetricsNode },
+  { node: "runFrameworkAgents" as const, run: runFrameworkAgentsNode },
+  { node: "blendFrameworkScores" as const, run: blendFrameworkScoresNode },
+  { node: "campaignStrategistAgent" as const, run: campaignStrategistAgentNode },
+  { node: "reasonAboutAttribution" as const, run: reasonAboutAttributionNode },
+  { node: "recommendOptimizations" as const, run: recommendOptimizationsNode },
+  { node: "composeReport" as const, run: composeReportNode }
 ] as const;
 
 const CampaignAgentAnnotation = Annotation.Root({
@@ -81,7 +78,6 @@ const graph = new StateGraph(CampaignAgentAnnotation)
   .addNode("retrieveNiaContext", retrieveNiaContextNode)
   .addNode("fetchReacherMetrics", fetchReacherMetricsNode)
   .addNode("runFrameworkAgents", runFrameworkAgentsNode)
-  .addNode("calculateObjectiveBlend", calculateObjectiveBlendNode)
   .addNode("blendFrameworkScores", blendFrameworkScoresNode)
   .addNode("campaignStrategistAgent", campaignStrategistAgentNode)
   .addNode("reasonAboutAttribution", reasonAboutAttributionNode)
@@ -91,8 +87,7 @@ const graph = new StateGraph(CampaignAgentAnnotation)
   .addEdge("normalizeInput", "retrieveNiaContext")
   .addEdge("retrieveNiaContext", "fetchReacherMetrics")
   .addEdge("fetchReacherMetrics", "runFrameworkAgents")
-  .addEdge("runFrameworkAgents", "calculateObjectiveBlend")
-  .addEdge("calculateObjectiveBlend", "blendFrameworkScores")
+  .addEdge("runFrameworkAgents", "blendFrameworkScores")
   .addEdge("blendFrameworkScores", "campaignStrategistAgent")
   .addEdge("campaignStrategistAgent", "reasonAboutAttribution")
   .addEdge("reasonAboutAttribution", "recommendOptimizations")
@@ -117,7 +112,10 @@ export async function streamCampaignGraphRun(
   let state: CampaignAgentState = { input, errors: [] };
 
   for (const step of CAMPAIGN_GRAPH_STEPS) {
-    onProgress({ node: step.node, label: step.label });
+    onProgress({
+      node: step.node,
+      label: CAMPAIGN_GRAPH_PROGRESS_LABELS[step.node as keyof typeof CAMPAIGN_GRAPH_PROGRESS_LABELS]
+    });
     const update = await step.run(state);
     state = {
       ...state,

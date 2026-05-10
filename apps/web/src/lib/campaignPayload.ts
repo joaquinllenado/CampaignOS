@@ -95,6 +95,6 @@ export function buildCampaignRunPayload(
     },
     ...(uniqueIds.length > 0 ? { nia: { sourceIds: uniqueIds } } : {}),
     ...(hasReach ? { reacher: reacherPayload } : {}),
-    ...(creators && creators.length ? { creators: [...creators] } : {})
+    ...(creators && creators.length ? { creators: [...creators] } : {}),
   };
 }

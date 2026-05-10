@@ -151,7 +151,9 @@ export const intakeBodySchema = z
     campaign: campaignIntakeSchema,
     nia: niaInputSchema.optional(),
     reacher: reacherInputSchema.optional(),
-    creators: z.array(creatorMetricInputSchema).optional()
+    creators: z.array(creatorMetricInputSchema).optional(),
+    /** Deprecated: unified scorer always runs; kept so legacy requests still validate. */
+    scoringMode: z.enum(["three_agent", "unified"]).optional()
   })
   .strict();
 
@@ -219,6 +221,19 @@ export const objectiveBlendSchema = z
       .strict(),
     rationale: z.string(),
     confidence: confidenceSchema
+  })
+  .strict();
+
+export const unifiedScoringPackSchema = z
+  .object({
+    objectiveBlend: objectiveBlendSchema,
+    frameworks: z
+      .object({
+        awareness: kpiFrameworkSchema,
+        engagement: kpiFrameworkSchema,
+        sales: kpiFrameworkSchema
+      })
+      .strict()
   })
   .strict();
 
@@ -364,6 +379,7 @@ export type CampaignIntakePayload = z.infer<typeof campaignIntakeSchema>;
 export type CreatorMetricInputPayload = z.infer<typeof creatorMetricInputSchema>;
 export type CampaignMetricSummary = z.infer<typeof campaignMetricSummarySchema>;
 export type CampaignAgentBody = z.infer<typeof intakeBodySchema>;
+export type UnifiedScoringPack = z.infer<typeof unifiedScoringPackSchema>;
 export type NiaContextResult = z.infer<typeof niaContextResultSchema>;
 export type DataProvenance = z.infer<typeof dataProvenanceSchema>;
 export type WeightedMetric = z.infer<typeof weightedMetricSchema>;

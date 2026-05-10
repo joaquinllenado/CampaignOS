@@ -26,7 +26,7 @@ export function CampaignLaunchSuccess({ campaign, report, onContinue }: Props) {
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-zinc-950">
       <header className="border-b border-stone-200 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/85">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-10">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-5 lg:px-6">
           <CampaignLogo size="xs" className="rounded-lg" />
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800">
             Strategy generated
@@ -34,12 +34,12 @@ export function CampaignLaunchSuccess({ campaign, report, onContinue }: Props) {
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-12 sm:px-10">
-        <section className="rounded-3xl border border-stone-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-10">
+      <main className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-6 sm:gap-6 sm:px-5 sm:py-8 lg:px-6 lg:py-10">
+        <section className="rounded-3xl border border-stone-200 bg-white px-4 py-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:px-5 sm:py-7 lg:px-6 lg:py-8">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
             Onboarding complete
           </p>
-          <div className="mt-5 grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+          <div className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_0.9fr] lg:items-end lg:gap-6 xl:gap-8">
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 sm:text-4xl">
                 Your campaign direction is ready.
@@ -59,8 +59,8 @@ export function CampaignLaunchSuccess({ campaign, report, onContinue }: Props) {
           </div>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-          <div className="rounded-2xl border border-stone-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+        <section className="grid gap-4 sm:gap-5 lg:grid-cols-[0.85fr_1.15fr] lg:gap-6">
+          <div className="rounded-2xl border border-stone-200 bg-white px-4 py-5 dark:border-zinc-800 dark:bg-zinc-900 sm:px-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
               Campaign direction
             </p>
@@ -70,7 +70,7 @@ export function CampaignLaunchSuccess({ campaign, report, onContinue }: Props) {
             <p className="mt-4 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
               {report.kpiFramework.summary}
             </p>
-            <div className="mt-6 rounded-xl border border-stone-200 bg-stone-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+            <div className="mt-6 rounded-xl border border-stone-200 bg-stone-50/70 px-3 py-3 dark:border-zinc-800 dark:bg-zinc-950/40">
               <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                 Confidence
               </p>
@@ -80,7 +80,7 @@ export function CampaignLaunchSuccess({ campaign, report, onContinue }: Props) {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-stone-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="rounded-2xl border border-stone-200 bg-white px-4 py-5 dark:border-zinc-800 dark:bg-zinc-900 sm:px-5">
             <div className="mb-5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
                 Generated KPIs
@@ -93,7 +93,7 @@ export function CampaignLaunchSuccess({ campaign, report, onContinue }: Props) {
               {report.kpiFramework.metrics.map((metric) => (
                 <article
                   key={metric.name}
-                  className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40"
+                  className="rounded-xl border border-stone-200 bg-stone-50/70 px-3 py-4 dark:border-zinc-800 dark:bg-zinc-950/40"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">

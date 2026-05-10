@@ -341,18 +341,37 @@ export function fallbackRecommendations(state: CampaignAgentState): Recommendati
     {
       priority: "medium",
       category: "measurement",
-      action: "Keep Nia source citations and Reacher metrics attached to every report refresh.",
-      rationale: "Separating source-backed context from model reasoning keeps recommendations auditable.",
-      expectedImpact: "Improves confidence in future diagnostics and optimization decisions."
+      action:
+        "Standardize tracked links per creator (UTMs or shop-tracked URLs) and review conversion by segment weekly so you can cut underperformers and double down on winners.",
+      rationale:
+        "Consistent tagging turns noisy traffic into comparable cohorts—the prerequisite for reallocating budget and creative confidently.",
+      expectedImpact: "Lets you isolate which creators and creatives actually drive revenue or intent, instead of optimizing on blended averages.",
+      followUpDataNeeded: ["per-creator or per-placement conversion or ROAS snapshots"]
     }
   ];
 }
 
+const RECOMMEND_OPTIMIZATIONS_SYSTEM_PROMPT = [
+  "You prioritize influencer campaign optimizations for a marketing lead who will execute the steps.",
+  "",
+  'Each recommendation `action` must be a concrete, operable directive (who does what by when)—use verbs like reallocate, test, tighten, sunset, reorder, negotiate, approve, pilot, benchmark. One primary move per recommendation.',
+  "Ground every item in supplied creator evaluations, attribution insights, KPI framework objectives/weights, and campaign summary—not generic hygiene.",
+  "",
+  "`category` must match the dominant lever:",
+  "`creator_mix` roster/budget swaps or tier rules; `creative_direction` hooks, formats, pacing, storyline; `cta` wording, placement, offer clarity, friction; ",
+  "`budget` spend pacing, boosts, bids; `audience` targeting segments, whitelists, geo/cohort; ",
+  '`measurement` tracking, tagging, attribution windows, test design, dashboards the team builds—never "keep this product feature on" unless it is explicitly a tracking/integration deliverable.',
+  "",
+  'FORBIDDEN in `action` or `rationale`: reminding users to preserve Nia excerpts, citations, internal report tooling, "attach metrics every refresh", vague "stay aligned", or purely documentation chores that do not change live campaign execution.',
+  "",
+  '`expectedImpact` ties to KPI framework metrics qualitatively (e.g. "should lift CTR and conversion_rate"), still advisory.',
+  "`followUpDataNeeded` optional when the next datapoint gates the optimization.",
+  "Do not guarantee outcomes."
+].join(" ");
+
 export async function recommendOptimizations(
   state: CampaignAgentState
 ): Promise<Partial<CampaignAgentState>> {
-  if (state.report) return {};
-
   const fallback = fallbackRecommendations(state);
   const model = createModel();
   if (!model) return { recommendations: fallback };
@@ -362,18 +381,21 @@ export async function recommendOptimizations(
     const recommendations = await structuredModel.invoke([
       {
         role: "system",
-        content:
-          "Produce prioritized campaign optimization recommendations. Keep claims advisory and evidence-backed. Do not guarantee outcomes."
+        content: RECOMMEND_OPTIMIZATIONS_SYSTEM_PROMPT
       },
       {
         role: "user",
         content: JSON.stringify({
+          instructions:
+            "Return only recommendations matching the schema. Prefer 4–6 items spanning creator/creative/commerce/measurement when evidence supports it.",
           normalizedBrief: state.normalizedBrief ? compactNormalizedBriefForLlm(state.normalizedBrief) : undefined,
           niaContext: compactNiaContextForLlm(state.niaContext ?? []),
           campaignSummary: compactCampaignSummaryForLlm(state.campaignSummary),
           kpiFramework: state.kpiFramework,
-          creatorEvaluations: compactCompositeCreatorEvaluationsForLlm(state.creatorEvaluations ?? []),
           attributionInsights: state.attributionInsights,
+          deterministicCompositeCreatorEvaluations: compactCompositeCreatorEvaluationsForLlm(
+            state.creatorEvaluations ?? []
+          ),
           dataProvenance: state.dataProvenance
         })
       }

@@ -17,7 +17,9 @@ import {
 
 const CAMPAIGN_STRATEGIST_SYSTEM_PROMPT = `CampaignOS strategist. You receive normalizedBrief, Nia excerpts, creator metrics (Reacher/manual), deterministic KPI framework, blended objective weights, slim per-framework evaluations, composite creator tiers, optional campaignSummary, provenance, and graphErrors.
 
-Rules: Separate observed metrics vs sourced context vs inference. Tie evaluation to business objective—not vanity alone. Preserve deterministic objectiveBlend, frameworkEvaluations shape, and creator tiers unless schema-safe refinement is justified. Labels: low/average/high performer only. Fill dashboard fields including performanceSnapshot, actionHealth, agentActivity, creatorMessageDrafts—drafts are unsent suggestions (compose may regenerate per-creator outreach after recommendations land). Never invent numbers or data; use campaignSummary as campaign-level evidence only and keep rankings from creator-level metrics. Brief, evidence-grounded prose.`;
+Rules: Separate observed metrics vs sourced context vs inference. Tie evaluation to business objective—not vanity alone. Preserve deterministic objectiveBlend, frameworkEvaluations shape, and creator tiers unless schema-safe refinement is justified. Labels: low/average/high performer only. Fill dashboard fields including performanceSnapshot, actionHealth, agentActivity, creatorMessageDrafts—drafts are unsent suggestions (compose may regenerate per-creator outreach after recommendations land). Never invent numbers or data; use campaignSummary as campaign-level evidence only and keep rankings from creator-level metrics. Brief, evidence-grounded prose.
+
+Recommendations in your output (schema recommendations array): downstream steps regenerate these—the ones you emit should still obey the same bar: actionable marketing ops steps mapped to KPI levers (creator_mix, creative_direction, cta, budget, audience, measurement). Verb-led actions a user can execute. Do not emit internal-product hygiene ("keep citations attached each refresh").`;
 
 export async function runCampaignStrategistAgent(
   state: CampaignAgentState

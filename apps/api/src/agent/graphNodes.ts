@@ -8,7 +8,7 @@ import {
   recommendOptimizations
 } from "./deterministicAnalysis";
 import { runCampaignStrategistAgent } from "./campaignStrategistAgent";
-import { blendFrameworkScores, calculateObjectiveBlend, runFrameworkAgents } from "./frameworkAgents";
+import { blendFrameworkScores, runFrameworkAgents } from "./frameworkAgents";
 
 export function normalizeInputNode(state: CampaignAgentState): Partial<CampaignAgentState> {
   return { normalizedBrief: normalizeInput(state) };
@@ -68,7 +68,6 @@ export async function fetchReacherMetricsNode(
 }
 
 export const runFrameworkAgentsNode = runFrameworkAgents;
-export const calculateObjectiveBlendNode = calculateObjectiveBlend;
 export const blendFrameworkScoresNode = blendFrameworkScores;
 export const campaignStrategistAgentNode = runCampaignStrategistAgent;
 export const reasonAboutAttributionNode = reasonAboutAttribution;

@@ -10,14 +10,14 @@ export const SIMULATION_HORIZONS: SimulationHorizon[] = [30, 60, 90];
 
 /**
  * How much of the remaining headroom (100 - currentSubScore) a recommendation closes per
- * affected metric, before horizon, framework, and effectiveness scaling. These numbers are
- * intentionally conservative: a high-priority recommendation closes 25% of the gap, not the
- * whole gap.
+ * affected metric, before horizon, framework, and effectiveness scaling. Designed so a
+ * high-priority recommendation materializes noticeable composite movement when simulated.
  */
 const PRIORITY_CLOSURE: Record<Recommendation["priority"], number> = {
-  high: 0.25,
-  medium: 0.12,
-  low: 0.05
+  /** Stronger uplift so simulations reflect meaningful execution of prioritized actions */
+  high: 0.42,
+  medium: 0.2,
+  low: 0.09
 };
 
 /**
