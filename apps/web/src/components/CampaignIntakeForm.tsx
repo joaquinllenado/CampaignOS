@@ -4,8 +4,8 @@ import type { AgentRunSuccess, CampaignIntakeFields, CampaignIntelligenceReport 
 import { ingestNiaBrandFiles, submitAgentRunWithProgress } from "../lib/api";
 import { buildCampaignRunPayload, type CampaignRunBuildOptions, type CreatorMetricsForAgentRun } from "../lib/campaignPayload";
 import { DEMO_CAMPAIGN_FIELDS, DEMO_REACHER_SAMPLE_TARGET_COLLAB_5_1_26 } from "../demo/demoCampaign.fixture";
-import { DEMO_BRAND_CONTEXT_PDF_FILENAMES, fetchDemoBrandContextFiles } from "../demo/demoDocuments";
-import { isDemoPresentationEnabled, shouldAutoloadDemoFromQuery } from "../demo/demoEnv";
+import { fetchDemoBrandContextFiles } from "../demo/demoDocuments";
+import { isDemoPresentationEnabled } from "../demo/demoEnv";
 
 type Props = {
   onComplete: (report: CampaignIntelligenceReport, campaign: CampaignIntakeFields) => void;
@@ -44,6 +44,9 @@ function isCampaignReport(result: AgentRunSuccess | null): result is CampaignInt
   return Boolean(result && "kpiFramework" in result);
 }
 
+/** Survives React Strict Mode remount so demo autoload/ingest does not run twice per page load. */
+let demoPresentationHydratedOncePerPageLoad = false;
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function CampaignIntakeForm({ onComplete }: Props) {
@@ -52,9 +55,7 @@ export function CampaignIntakeForm({ onComplete }: Props) {
   const [niaSourceIds, setNiaSourceIds] = useState<string[]>([]);
   const [fixtureCreators, setFixtureCreators] = useState<CreatorMetricsForAgentRun[] | null>(null);
   const [sampleRunOptions, setSampleRunOptions] = useState<CampaignRunBuildOptions | null>(null);
-  const demoAutoHydratedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
-  const [demoDocBusy, setDemoDocBusy] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [progressLog, setProgressLog] = useState<{ id: number; label: string }[]>([]);
   const progressSeq = useRef(0);
@@ -62,15 +63,14 @@ export function CampaignIntakeForm({ onComplete }: Props) {
 
   const demoToolkit = isDemoPresentationEnabled();
 
-  const ingestDemoBrandPdfs = useCallback(async (replaceExisting: boolean) => {
-    setDemoDocBusy(true);
+  const ingestDemoBrandPdfs = useCallback(async () => {
     setError(null);
     try {
       const files = await fetchDemoBrandContextFiles();
       const result = await ingestNiaBrandFiles(files, DEMO_CAMPAIGN_FIELDS.name);
       const newIds = result.indexed.map((i) => i.sourceId).filter(Boolean);
       if (newIds.length) {
-        setNiaSourceIds((prev) => (replaceExisting ? newIds : [...prev, ...newIds]));
+        setNiaSourceIds(newIds);
       }
       if (result.errors.length && !newIds.length) {
         const first = result.errors[0];
@@ -82,8 +82,6 @@ export function CampaignIntakeForm({ onComplete }: Props) {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Demo documents failed to index.");
-    } finally {
-      setDemoDocBusy(false);
     }
   }, []);
 
@@ -94,21 +92,12 @@ export function CampaignIntakeForm({ onComplete }: Props) {
     setNiaSourceIds([]);
     setStep(0);
     setError(null);
-    void ingestDemoBrandPdfs(true);
+    void ingestDemoBrandPdfs();
   }, [ingestDemoBrandPdfs]);
 
-  const resetPresentationFixture = useCallback(() => {
-    setCampaign({ ...defaultFields });
-    setFixtureCreators(null);
-    setSampleRunOptions(null);
-    setNiaSourceIds([]);
-    setStep(0);
-    setError(null);
-  }, []);
-
   useEffect(() => {
-    if (!demoToolkit || demoAutoHydratedRef.current || !shouldAutoloadDemoFromQuery()) return;
-    demoAutoHydratedRef.current = true;
+    if (!demoToolkit || demoPresentationHydratedOncePerPageLoad) return;
+    demoPresentationHydratedOncePerPageLoad = true;
     applyPresentationFixture();
   }, [demoToolkit, applyPresentationFixture]);
 
@@ -265,17 +254,6 @@ export function CampaignIntakeForm({ onComplete }: Props) {
           title="Brief & supporting documents"
           description="Optional. Drop your brief deck plus any past-campaign or brand context — PDFs, decks, spreadsheets, notes. Each file indexes to Nia automatically."
           fileInputLabel="Upload campaign documents"
-          demoAttach={
-            demoToolkit
-              ? {
-                  label: demoDocBusy
-                    ? "Indexing demo PDFs…"
-                    : `Attach ${DEMO_BRAND_CONTEXT_PDF_FILENAMES.length} demo PDFs (brief, brand voice, creator notes)`,
-                  onClick: () => void ingestDemoBrandPdfs(false),
-                  disabled: demoDocBusy || isLoading
-                }
-              : undefined
-          }
         />
       </div>
     </div>
@@ -318,36 +296,8 @@ export function CampaignIntakeForm({ onComplete }: Props) {
   );
 
   // ── Main render ─────────────────────────────────────────────────────────────
-  const demoRibbon = demoToolkit ? (
-    <div className="mb-6 rounded-xl border border-stone-200 bg-stone-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Quick start</p>
-      <p className="mt-1 text-xs leading-snug text-zinc-500 dark:text-zinc-400">
-        Load a sample brief tied to Reacher dummy shop “Grocery Stars” and the “Target Collab 5/1/26” window — three demo PDFs (brief, brand voice, creator notes) index to Nia automatically — metrics come from the live Reacher API when <code className="font-mono text-[11px]">REACHER_API_KEY</code> is set (otherwise the agent falls back to demo rows).
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={isLoading}
-          onClick={applyPresentationFixture}
-          className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-        >
-          Load sample
-        </button>
-        <button
-          type="button"
-          disabled={isLoading}
-          onClick={resetPresentationFixture}
-          className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          Reset
-        </button>
-      </div>
-    </div>
-  ) : null;
-
   return (
     <form onSubmit={handleSubmit} className="mx-auto w-full max-w-[520px]">
-      {demoRibbon}
       {progressBar}
 
       <div className="mb-6">

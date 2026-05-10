@@ -1,6 +1,35 @@
 import { ApiError, NiaSDK, V2ApiSourcesService } from "nia-ai-ts";
 import type { Source } from "nia-ai-ts";
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableIndexing429(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 429;
+}
+
+/**
+ * Nia limits parallel indexing jobs; under dev Strict Mode double-invoke or other
+ * traffic can briefly hit that cap. Retry 429 responses with backoff before failing.
+ */
+async function withRetriesOnIndexingRateLimit<T>(work: () => Promise<T>): Promise<T> {
+  const maxAttempts = 10;
+  const baseMs = 2_500;
+  let last: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await work();
+    } catch (e) {
+      last = e;
+      if (!isRetryableIndexing429(e) || attempt === maxAttempts - 1) throw e;
+      const backoff = Math.min(60_000, baseMs * 2 ** attempt + Math.floor(Math.random() * 1000));
+      await delay(backoff);
+    }
+  }
+  throw last;
+}
+
 const TEXT_EXTENSIONS = new Set([
   "txt",
   "md",
@@ -180,7 +209,8 @@ export async function ingestBrandContextFiles(
   const indexed: BrandFileIngestItem[] = [];
   const errors: { filename: string; message: string }[] = [];
 
-  for (const file of files) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]!;
     const displayName = displayNameFor(options?.campaignLabel, file.name);
     const ext = extensionOf(file.name);
 
@@ -189,14 +219,15 @@ export async function ingestBrandContextFiles(
       let source: Source;
 
       if (binarySpec) {
-        source = await withNiaIngestTimeout(
-          `Nia ingest (${file.name})`,
-          ingestBinaryViaSignedUrl(sdk, file, displayName, binarySpec)
+        source = await withRetriesOnIndexingRateLimit(() =>
+          withNiaIngestTimeout(
+            `Nia ingest (${file.name})`,
+            ingestBinaryViaSignedUrl(sdk, file, displayName, binarySpec)
+          )
         );
       } else if (TEXT_EXTENSIONS.has(ext) || ext === "") {
-        source = await withNiaIngestTimeout(
-          `Nia ingest (${file.name})`,
-          ingestTextFile(sdk, file, displayName)
+        source = await withRetriesOnIndexingRateLimit(() =>
+          withNiaIngestTimeout(`Nia ingest (${file.name})`, ingestTextFile(sdk, file, displayName))
         );
       } else {
         throw new Error(
@@ -227,6 +258,9 @@ export async function ingestBrandContextFiles(
         message = String(caught);
       }
       errors.push({ filename: file.name, message });
+    }
+    if (i < files.length - 1) {
+      await delay(1200);
     }
   }
 

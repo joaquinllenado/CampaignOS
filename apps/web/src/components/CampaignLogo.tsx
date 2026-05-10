@@ -14,9 +14,9 @@ const iconHeightClass: Record<Size, string> = {
 /** Horizontal wordmark from `public/logo.png`. */
 const wordmarkHeightClass: Record<Size, string> = {
   xs: "h-7 sm:h-8",
-  sm: "h-14 sm:h-16",
+  sm: "h-16 sm:h-20",
   md: "h-16 sm:h-20",
-  lg: "h-20 xl:h-24",
+  lg: "h-24 xl:h-28",
 };
 
 type Props = {
