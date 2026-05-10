@@ -10,7 +10,7 @@ import type {
   CampaignMetricSummary,
   CreatorEvaluation,
   CreatorMessageDraft,
-  FrameworkEvaluation
+  FrameworkEvaluation,
 } from "../lib/campaignTypes";
 import {
   recommendationSimulationId,
@@ -35,17 +35,61 @@ type DashboardSection = "overview" | "simulation" | "actions" | "activity" | "ou
 type ReportSection = "kpis" | "summary" | "creators" | "attribution";
 export type AllSection = DashboardSection | ReportSection;
 
+const neutralPillChip =
+  "bg-stone-100 text-zinc-800 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-600";
+
 const healthStyles: Record<ActionHealth["status"], { bg: string; dot: string; label: string; accent: string }> = {
   green: { bg: "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800/60", dot: "bg-emerald-500", label: "Healthy", accent: "text-emerald-700 dark:text-emerald-300" },
   yellow: { bg: "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/60", dot: "bg-amber-500", label: "Needs attention", accent: "text-amber-700 dark:text-amber-300" },
-  red: { bg: "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800/60", dot: "bg-red-500", label: "Urgent", accent: "text-red-700 dark:text-red-300" }
+  red: { bg: "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800/60", dot: "bg-red-500", label: "Urgent", accent: "text-red-700 dark:text-red-300" },
 };
 
 const objectiveOrder = ["sales", "engagement", "awareness"] as const;
+
+const overviewMiniPanelClass =
+  "flex h-full min-h-0 flex-col rounded-xl border border-stone-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900";
+const overviewMiniPanelHeaderClass = "mb-3 flex min-h-[1.125rem] items-center justify-between gap-2";
+const overviewMiniChipClass =
+  "flex min-h-0 min-w-0 flex-col justify-between rounded-lg border border-stone-200 bg-stone-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/40";
+const overviewObjectiveChipGridClass = "grid flex-1 auto-rows-fr gap-2";
+
+/** Shared chip for Goal weights vs Objective scores so layout, type scale, and row rhythm match exactly. */
+function OverviewObjectivePairChip({
+  label,
+  primary,
+  caption,
+  primarySuffix,
+}: {
+  label: string;
+  primary: ReactNode;
+  caption?: string;
+  primarySuffix?: ReactNode;
+}) {
+  return (
+    <div className={overviewMiniChipClass}>
+      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">
+        {label}
+      </p>
+      <div>
+        <div className="flex flex-wrap items-baseline gap-x-0.5 gap-y-0">
+          <span className="text-3xl font-bold tabular-nums leading-none tracking-tight text-zinc-900 dark:text-zinc-100">
+            {primary}
+          </span>
+          {primarySuffix != null ? (
+            <span className="text-[11px] font-semibold tabular-nums text-zinc-400 dark:text-zinc-500">{primarySuffix}</span>
+          ) : null}
+        </div>
+        <p className="mt-1.5 min-h-[14px] text-[10px] capitalize leading-none text-zinc-400 dark:text-zinc-500">
+          {caption ? caption : "\u00a0"}
+        </p>
+      </div>
+    </div>
+  );
+}
 const tierStyles = {
   high: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800",
   average: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-800",
-  low: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-800"
+  low: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-800",
 };
 
 export function initialDraftBodies(drafts: CreatorMessageDraft[]) {
@@ -99,6 +143,7 @@ function formatSignedPoints(value: number) {
   const rounded = Math.round(value * 10) / 10;
   return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(1)} pts`;
 }
+
 
 function summaryMetricCards(summary: CampaignMetricSummary) {
   return [
@@ -212,13 +257,13 @@ function ContributionRow({
           </div>
           <p className="mt-1.5 text-xs font-medium text-zinc-900 dark:text-zinc-100">{contribution.recommendation.action}</p>
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${positive ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-800" : "bg-stone-100 text-zinc-500 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700"}`}>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${positive ? "bg-stone-100 text-zinc-800 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-600" : "bg-stone-100 text-zinc-500 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700"}`}>
           {formatSignedPoints(contribution.compositePoints)}
         </span>
       </div>
       <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-stone-100 dark:bg-zinc-800">
         <div
-          className={`h-full rounded-full ${positive ? "bg-emerald-500" : "bg-stone-300 dark:bg-zinc-600"}`}
+          className={`h-full rounded-full ${positive ? "bg-zinc-600 dark:bg-zinc-400" : "bg-stone-300 dark:bg-zinc-600"}`}
           style={{ width: `${widthPercent}%` }}
         />
       </div>
@@ -226,7 +271,7 @@ function ContributionRow({
         {contribution.perFrameworkPoints.filter((e) => Math.abs(e.points) >= 0.05).map((e) => (
           <span key={e.objective}>{titleCase(e.objective)} {formatSignedPoints(e.points)}</span>
         ))}
-        {contribution.unmodeled && <span className="text-amber-600 dark:text-amber-400">Outside framework</span>}
+        {contribution.unmodeled && <span className="text-zinc-600 dark:text-zinc-400">Outside framework</span>}
       </div>
       {contribution.perMetricLifts.length ? (
         <details className="group mt-2">
@@ -251,7 +296,7 @@ function ContributionRow({
                   <td className="py-1 pr-2">{titleCase(lift.metricName)}</td>
                   <td className="py-1 pr-2">{lift.weight}%</td>
                   <td className="py-1 pr-2">{lift.subScoreBefore}→{lift.subScoreAfter}</td>
-                  <td className="py-1 text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                  <td className="py-1 text-right font-semibold text-zinc-900 dark:text-zinc-100">
                     {formatSignedPoints(lift.pointContributionToFramework)}
                   </td>
                 </tr>
@@ -302,6 +347,11 @@ export function CampaignDashboard({
   const draftsByTier = useMemo(
     () => groupDraftsByTier(report.creatorMessageDrafts, report.creatorEvaluations),
     [report.creatorMessageDrafts, report.creatorEvaluations]
+  );
+
+  const evaluationByObjective = useMemo(
+    () => new Map(report.frameworkEvaluations.map((fw) => [fw.objective, fw])),
+    [report.frameworkEvaluations]
   );
 
   async function copyDraft(draft: CreatorMessageDraft) {
@@ -360,7 +410,7 @@ export function CampaignDashboard({
   const recPriorityStyles = {
     high: "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300",
     medium: "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
-    low: "bg-stone-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+    low: "bg-stone-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
   } as const;
 
   const overviewSection = (
@@ -377,11 +427,11 @@ export function CampaignDashboard({
         </button>
       </section>
 
-      {/* Metric stat cards row */}
+      {/* Metric stat cards row — auto-fill so cards always span full width */}
       {campaignSummaryCards.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {campaignSummaryCards.slice(0, 5).map((metric) => (
-            <div key={metric.label} className="rounded-xl border border-stone-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(campaignSummaryCards.length, 8)}, minmax(0, 1fr))` }}>
+          {campaignSummaryCards.slice(0, 8).map((metric) => (
+            <div key={metric.label} className="rounded-xl border border-stone-200 bg-stone-50/70 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950/40">
               <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">{metric.label}</p>
               <p className="mt-1.5 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{metric.value}</p>
             </div>
@@ -389,50 +439,91 @@ export function CampaignDashboard({
         </div>
       )}
 
-      {/* Main 2-col: snapshot + actions */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-        {/* Left: snapshot + framework scores */}
-        <div className="space-y-4">
-          <Card>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Performance snapshot</span>
-              <span className="text-[11px] capitalize text-zinc-400 dark:text-zinc-500">{report.confidence} confidence</span>
-            </div>
-            <p className="text-base font-medium leading-7 text-zinc-900 dark:text-zinc-100">{report.performanceSnapshot}</p>
-          </Card>
+      {/* Performance snapshot — full width */}
+      <Card>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Performance snapshot</span>
+          <span className="text-[11px] capitalize text-zinc-400 dark:text-zinc-500">{report.confidence} confidence</span>
+        </div>
+        <p className="text-base font-medium leading-7 text-zinc-900 dark:text-zinc-100">{report.performanceSnapshot}</p>
+      </Card>
 
-          {/* Objective scores across */}
-          <div className="grid grid-cols-3 gap-3">
-            {report.frameworkEvaluations.map((fw) => (
-              <div key={fw.objective} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">{titleCase(fw.objective)}</p>
-                <p className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{fw.campaignScore}</p>
-                <p className="mt-0.5 text-[10px] capitalize text-zinc-400 dark:text-zinc-500">{fw.confidence} conf.</p>
-              </div>
+      {/* Goal weights · Objective scores: equal-width panels; columns locked to sales→engagement→awareness */}
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
+        <section className={overviewMiniPanelClass}>
+          <div className={overviewMiniPanelHeaderClass}>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
+              Goal weights
+            </span>
+            <span className="text-[11px] capitalize text-zinc-400 dark:text-zinc-500">{report.objectiveBlend.confidence}</span>
+          </div>
+          <div
+            className={overviewObjectiveChipGridClass}
+            style={{
+              gridTemplateColumns: `repeat(${objectiveOrder.length}, minmax(0, 1fr))`,
+            }}
+          >
+            {objectiveOrder.map((objective) => (
+              <OverviewObjectivePairChip
+                key={objective}
+                label={titleCase(objective)}
+                primary={`${report.objectiveBlend.weights[objective]}%`}
+              />
             ))}
           </div>
+        </section>
 
-          {/* Score trajectory */}
-          <Card>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Score trajectory · {simulationHorizon}d</span>
-              <button type="button" onClick={() => setActiveSection("simulation")} className="text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200">Simulate →</button>
-            </div>
-            <div className="flex items-end gap-3">
-              <p className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                {futureSimulation.baselineCompositeScore}
-                <span className="mx-2 text-xl font-normal text-zinc-400">→</span>
-                {futureSimulation.projectedCompositeScore}
-              </p>
-              <span className="mb-0.5 text-base font-semibold text-emerald-600 dark:text-emerald-400">
-                {formatSignedPoints(futureSimulation.projectedCompositeScore - futureSimulation.baselineCompositeScore)}
-              </span>
-            </div>
-            <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400 line-clamp-2">{futureSimulation.narrative}</p>
-          </Card>
+        <section className={overviewMiniPanelClass}>
+          <div className={overviewMiniPanelHeaderClass}>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
+              Objective scores
+            </span>
+            <span className="text-[11px] capitalize text-zinc-400 dark:text-zinc-500">{report.confidence}</span>
+          </div>
+          <div
+            className={overviewObjectiveChipGridClass}
+            style={{
+              gridTemplateColumns: `repeat(${objectiveOrder.length}, minmax(0, 1fr))`,
+            }}
+          >
+            {objectiveOrder.map((objective) => {
+              const fw = evaluationByObjective.get(objective);
+              return (
+                <OverviewObjectivePairChip
+                  key={objective}
+                  label={titleCase(objective)}
+                  primary={fw != null ? String(fw.campaignScore) : "—"}
+                  caption={fw?.confidence}
+                  primarySuffix={fw != null ? "/100" : undefined}
+                />
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      {/* Score trajectory — full width */}
+      <Card>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Score trajectory · {simulationHorizon}d</span>
+          <button type="button" onClick={() => setActiveSection("simulation")} className="text-xs font-medium text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200">Simulate →</button>
         </div>
+        <div className="flex items-end gap-3">
+          <p className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+            {futureSimulation.baselineCompositeScore}
+            <span className="mx-2 text-xl font-normal text-zinc-400">→</span>
+            {futureSimulation.projectedCompositeScore}
+          </p>
+          <span className="mb-0.5 text-base font-semibold text-emerald-600 dark:text-emerald-400">
+            {formatSignedPoints(futureSimulation.projectedCompositeScore - futureSimulation.baselineCompositeScore)}
+          </span>
+        </div>
+        <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{futureSimulation.narrative}</p>
+      </Card>
 
-        {/* Right: top actions */}
+      {/* Bottom 3-col row */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Top actions */}
         <Card className="flex flex-col">
           <div className="mb-3 flex items-center justify-between gap-3">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Top actions</span>
@@ -449,25 +540,6 @@ export function CampaignDashboard({
               </li>
             ))}
           </ul>
-        </Card>
-      </div>
-
-      {/* Bottom 3-col row */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Goal weights */}
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Goal weights</span>
-            <span className="text-[11px] capitalize text-zinc-400 dark:text-zinc-500">{report.objectiveBlend.confidence}</span>
-          </div>
-          <div className="space-y-2">
-            {objectiveOrder.map((objective) => (
-              <div key={objective} className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50/70 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/40">
-                <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{titleCase(objective)}</p>
-                <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{report.objectiveBlend.weights[objective]}%</p>
-              </div>
-            ))}
-          </div>
         </Card>
 
         {/* Creators preview */}
@@ -517,7 +589,7 @@ export function CampaignDashboard({
     const maxAbsContribution = Math.max(1, ...futureSimulation.contributions.map((c) => Math.abs(c.compositePoints)));
 
     return (
-      <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+      <div className="grid gap-4 lg:grid-cols-[3fr_2fr] xl:grid-cols-[5fr_3fr]">
         {/* Left: score hero + framework projections + KPI breakdown */}
         <div className="space-y-4">
           <Card>
@@ -574,7 +646,7 @@ export function CampaignDashboard({
 
           <Card>
             <SectionHeading label="KPI frameworks" sub="Metrics and weights per objective" />
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${report.frameworkEvaluations.length}, minmax(0, 1fr))` }}>
               {report.frameworkEvaluations.map((framework) => (
                 <FrameworkMetricList key={framework.objective} framework={framework} />
               ))}
@@ -602,7 +674,7 @@ export function CampaignDashboard({
   })();
 
   const actionsSection = (
-    <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+    <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
       <Card>
         <SectionHeading label="Recommended actions" sub={`${sortedRecommendations.length} actions · toggle to include in simulation`} />
         {sortedRecommendations.length ? (
@@ -611,9 +683,9 @@ export function CampaignDashboard({
               const simulationId = recommendationSimulationId(rec, index);
               const checked = selectedSimulationRecommendationIds.has(simulationId);
               const priorityColors = {
-                high: "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300",
-                medium: "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
-                low: "bg-stone-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                high: neutralPillChip,
+                medium: neutralPillChip,
+                low: neutralPillChip,
               };
               return (
                 <li
@@ -692,7 +764,7 @@ export function CampaignDashboard({
   );
 
   const activitySection = (
-    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+    <div className="grid gap-4 lg:grid-cols-[3fr_1fr]">
       <Card>
         <SectionHeading label="Agent activity" sub={`${activityTimeline.length} events`} />
         <ol className="space-y-0">
@@ -793,7 +865,13 @@ export function CampaignDashboard({
                 </summary>
                 <div className="px-4 pb-4">
                   {feedback && (
-                    <p className={`mb-3 rounded-lg px-3 py-2 text-xs ${feedback.ok ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" : "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-200"}`}>
+                    <p
+                      className={`mb-3 rounded-lg border px-3 py-2 text-xs ${
+                        feedback.ok
+                          ? "border-stone-200 bg-stone-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-zinc-200"
+                          : "border-zinc-300 bg-zinc-100 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                      }`}
+                    >
                       {feedback.message}
                     </p>
                   )}
@@ -860,14 +938,14 @@ export function CampaignDashboard({
   // ── Report sections ──────────────────────────────────────────────────────────
 
   const kpisSection = (
-    <div className="space-y-4">
+    <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
       <Card>
         <SectionHeading
           label="KPI framework"
           sub={`${report.kpiFramework.metrics.length} metrics · ${report.kpiFramework.confidence} confidence`}
         />
         <p className="mb-4 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{report.kpiFramework.summary}</p>
-        <div className="space-y-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           {report.kpiFramework.metrics.map((metric) => (
             <div key={metric.name} className="rounded-lg border border-stone-200 bg-stone-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
               <div className="flex items-center justify-between gap-3">
@@ -879,30 +957,54 @@ export function CampaignDashboard({
           ))}
         </div>
       </Card>
+      <div className="space-y-4">
+        {report.frameworkEvaluations.map((fw) => (
+          <FrameworkMetricList key={fw.objective} framework={fw} />
+        ))}
+      </div>
+    </div>
+  );
+
+  const reportSummarySection = (
+    <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
       <Card>
-        <SectionHeading label="Framework scores" sub="Per-objective KPI performance" />
-        <div className="grid gap-3 sm:grid-cols-3">
-          {report.frameworkEvaluations.map((fw) => (
-            <div key={fw.objective} className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">{titleCase(fw.objective)}</p>
-              <p className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{fw.campaignScore}</p>
-              <p className="mt-0.5 text-[10px] capitalize text-zinc-400 dark:text-zinc-500">{fw.confidence} conf.</p>
+        <SectionHeading label="Executive summary" />
+        <p className="text-sm leading-7 text-zinc-600 dark:text-zinc-300">{report.executiveSummary}</p>
+      </Card>
+      <Card>
+        <SectionHeading label="Data provenance" sub={`${report.dataProvenance.metricsSource} metrics · ${report.dataProvenance.contextSource.replace("_"," ")} context`} />
+        <div className="space-y-2">
+          {report.dataProvenance.reacherObjectsUsed.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">Reacher objects</p>
+              {report.dataProvenance.reacherObjectsUsed.map((obj) => (
+                <p key={obj} className="text-xs text-zinc-600 dark:text-zinc-300 py-1 border-b border-stone-100 dark:border-zinc-800 last:border-0">{obj}</p>
+              ))}
             </div>
-          ))}
+          )}
+          {report.dataProvenance.niaSourcesUsed.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">NIA sources</p>
+              {report.dataProvenance.niaSourcesUsed.map((src) => (
+                <p key={src} className="text-xs text-zinc-600 dark:text-zinc-300 py-1 border-b border-stone-100 dark:border-zinc-800 last:border-0">{src}</p>
+              ))}
+            </div>
+          )}
+          {report.dataProvenance.missingInputs.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-500">Missing inputs</p>
+              {report.dataProvenance.missingInputs.map((m) => (
+                <p key={m} className="text-xs text-zinc-600 dark:text-zinc-300 py-1 border-b border-stone-100 dark:border-zinc-800 last:border-0">{m}</p>
+              ))}
+            </div>
+          )}
         </div>
       </Card>
     </div>
   );
 
-  const reportSummarySection = (
-    <Card>
-      <SectionHeading label="Executive summary" />
-      <p className="text-sm leading-7 text-zinc-600 dark:text-zinc-300">{report.executiveSummary}</p>
-    </Card>
-  );
-
   const reportCreatorsSection = (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {report.creatorEvaluations.map((creator) => (
         <Card key={creator.creatorName}>
           <div className="flex items-center justify-between gap-2">
@@ -925,15 +1027,15 @@ export function CampaignDashboard({
   );
 
   const reportAttributionSection = (
-    <div className="space-y-5">
+    <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
       <Card>
         <SectionHeading label="Attribution insights" sub="Why results happened" />
-        <ul className="space-y-4">
+        <ul className="grid gap-3 sm:grid-cols-2">
           {report.attributionInsights.map((insight) => (
-            <li key={insight.claim} className="border-b border-stone-200 pb-4 last:border-0 last:pb-0 dark:border-zinc-800">
-              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{insight.claim}</p>
-              <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{insight.businessImplication}</p>
-              <span className="mt-1.5 inline-block text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+            <li key={insight.claim} className="rounded-lg border border-stone-200 bg-stone-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
+              <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{insight.claim}</p>
+              <p className="mt-1.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{insight.businessImplication}</p>
+              <span className="mt-2 inline-block text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
                 {insight.confidence} confidence
               </span>
             </li>
@@ -942,7 +1044,7 @@ export function CampaignDashboard({
       </Card>
       <details className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <summary className="cursor-pointer text-sm font-medium text-zinc-600 dark:text-zinc-400">Raw payload</summary>
-        <pre className="mt-4 max-h-72 overflow-auto rounded-lg bg-stone-50 p-4 text-[11px] leading-relaxed text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
+        <pre className="mt-4 max-h-[600px] overflow-auto rounded-lg bg-stone-50 p-4 text-[11px] leading-relaxed text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-400">
           {JSON.stringify(report, null, 2)}
         </pre>
       </details>
@@ -1089,7 +1191,7 @@ export function CampaignDashboard({
       <div className={`flex min-h-screen w-full flex-col transition-all duration-200 ${mainPl}`}>
         {/* Top bar */}
         <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/90">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-8 py-3">
+          <div className="flex w-full items-center justify-between px-6 py-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
                 {allNav.find((n) => n.id === activeSection)?.label}
@@ -1111,7 +1213,7 @@ export function CampaignDashboard({
         </header>
 
         {/* Content */}
-        <main className="mx-auto w-full max-w-6xl px-8 py-8">
+        <main className="w-full px-6 py-6">
           {renderContent()}
         </main>
       </div>
