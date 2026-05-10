@@ -6,17 +6,6 @@ Built as a **Bun monorepo**: a React + Tailwind dashboard (`apps/web`) and an El
 
 ---
 
-## Why judges should care
-
-| Problem | What we built |
-|--------|----------------|
-| Campaign setup is fragmented across briefs, spreadsheets, and tools | Single intake → structured brief normalization |
-| Brand context lives in files teams already have | Upload PDFs/spreadsheets/text → **Nia** indexes them for RAG-style retrieval in the agent |
-| Matching creators to KPIs is subjective | **Framework agents** blend funnel weights and KPI frameworks; creators get tiered evaluations |
-| Operators need transparency | Step-by-step graph progress (streaming) and a campaign intelligence report in the UI |
-
----
-
 ## Features (demo flow)
 
 1. **Onboarding** — Campaign brief via `CampaignIntakeForm` (optional brand file uploads when Nia is configured).
